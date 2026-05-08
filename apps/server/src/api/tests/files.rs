@@ -1,7 +1,7 @@
 use axum::http::{HeaderMap, HeaderValue};
 use uuid::Uuid;
 
-use crate::api::files::{parse_chunk_index, upload_chunk_storage_key};
+use crate::api::files::{chunk_storage_key, parse_chunk_index};
 use crate::error::AppError;
 
 fn headers_with_chunk_index(value: &'static str) -> HeaderMap {
@@ -48,10 +48,10 @@ fn parse_chunk_index_rejects_non_integer_header() {
 }
 
 #[test]
-fn upload_chunk_storage_key_is_stable_and_zero_padded() {
-    let upload_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+fn chunk_storage_key_is_stable_and_zero_padded() {
+    let file_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
 
-    let key = upload_chunk_storage_key(upload_id, 12);
+    let key = chunk_storage_key(file_id, 12);
 
     assert_eq!(key, "chunks/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/00000012");
 }

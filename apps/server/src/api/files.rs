@@ -32,7 +32,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Extension, Json,
 };
@@ -176,7 +176,7 @@ pub async fn upload_chunk(
         return Err(AppError::BadRequest("chunk body must not be empty".into()));
     }
 
-    let storage_key = upload_chunk_storage_key(upload_id, chunk_index);
+    let storage_key = chunk_storage_key(upload_id, chunk_index);
     let already_received = state.storage.exists(&storage_key).await?;
 
     state.storage.put(&storage_key, body).await?;
@@ -211,8 +211,8 @@ pub(super) fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
         .map_err(|_| AppError::BadRequest("X-Chunk-Index must be a non-negative integer".into()))
 }
 
-pub(super) fn upload_chunk_storage_key(upload_id: Uuid, chunk_index: u32) -> String {
-    format!("chunks/{upload_id}/{chunk_index:08}")
+pub(super) fn chunk_storage_key(file_id: Uuid, chunk_index: u32) -> String {
+    format!("chunks/{file_id}/{chunk_index:08}")
 }
 
 /// `POST /api/v1/files/upload/:upload_id/complete` — Phase 3: finalise upload.
@@ -248,8 +248,9 @@ pub async fn upload_complete(
         )));
     }
 
-    // Promote the upload to a permanent file record.
-    let file_id = Uuid::new_v4();
+    // Promote the upload to a permanent file record. The upload ID becomes the
+    // file ID so chunks written during upload already live at their final key.
+    let file_id = upload_id;
     sqlx::query(
         r#"
         INSERT INTO files (
@@ -357,14 +358,43 @@ pub async fn get_file_meta(
 
 /// `GET /api/v1/files/:file_id/chunk/:n` — download a single encrypted chunk.
 pub async fn download_chunk(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path((file_id, chunk_index)): Path<(Uuid, u32)>,
 ) -> Result<impl IntoResponse> {
-    // TODO: Stream the chunk bytes from the storage provider.
-    // The storage key is: format!("chunks/{file_id}/{chunk_index:08}")
-    tracing::debug!(file_id = %file_id, chunk_index, user = %claims.sub, "Chunk download");
-    Err::<StatusCode, _>(AppError::NotFound("storage provider not yet wired".into()))
+    let row = sqlx::query(
+        r#"
+        SELECT total_chunks
+        FROM files
+        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+        "#,
+    )
+    .bind(file_id)
+    .bind(claims.sub)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    .ok_or(AppError::NotFound(format!("file {file_id}")))?;
+
+    let total_chunks = row.get::<i32, _>("total_chunks") as u32;
+    if chunk_index >= total_chunks {
+        return Err(AppError::BadRequest(format!(
+            "chunk index {chunk_index} out of range for file with {total_chunks} chunks"
+        )));
+    }
+
+    let storage_key = chunk_storage_key(file_id, chunk_index);
+    let chunk = state.storage.get(&storage_key).await?;
+
+    tracing::debug!(
+        file_id = %file_id,
+        chunk_index,
+        storage_key = %storage_key,
+        user = %claims.sub,
+        "Chunk downloaded"
+    );
+
+    Ok(([(header::CONTENT_TYPE, "application/octet-stream")], chunk))
 }
 
 /// `DELETE /api/v1/files/:file_id` — soft-delete (moves to trash).
