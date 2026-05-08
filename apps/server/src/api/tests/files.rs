@@ -1,0 +1,57 @@
+use axum::http::{HeaderMap, HeaderValue};
+use uuid::Uuid;
+
+use crate::api::files::{parse_chunk_index, upload_chunk_storage_key};
+use crate::error::AppError;
+
+fn headers_with_chunk_index(value: &'static str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-chunk-index", HeaderValue::from_static(value));
+    headers
+}
+
+#[test]
+fn parse_chunk_index_accepts_valid_header() {
+    let headers = headers_with_chunk_index("42");
+
+    let index = parse_chunk_index(&headers).unwrap();
+
+    assert_eq!(index, 42);
+}
+
+#[test]
+fn parse_chunk_index_accepts_canonical_header_name() {
+    let mut headers = HeaderMap::new();
+    headers.insert("X-Chunk-Index", HeaderValue::from_static("7"));
+
+    let index = parse_chunk_index(&headers).unwrap();
+
+    assert_eq!(index, 7);
+}
+
+#[test]
+fn parse_chunk_index_rejects_missing_header() {
+    let err = parse_chunk_index(&HeaderMap::new()).unwrap_err();
+
+    assert!(matches!(err, AppError::BadRequest(_)));
+    assert!(err.to_string().contains("missing X-Chunk-Index"));
+}
+
+#[test]
+fn parse_chunk_index_rejects_non_integer_header() {
+    let headers = headers_with_chunk_index("not-a-number");
+
+    let err = parse_chunk_index(&headers).unwrap_err();
+
+    assert!(matches!(err, AppError::BadRequest(_)));
+    assert!(err.to_string().contains("non-negative integer"));
+}
+
+#[test]
+fn upload_chunk_storage_key_is_stable_and_zero_padded() {
+    let upload_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+
+    let key = upload_chunk_storage_key(upload_id, 12);
+
+    assert_eq!(key, "chunks/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/00000012");
+}

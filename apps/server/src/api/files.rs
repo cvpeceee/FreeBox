@@ -200,7 +200,7 @@ pub async fn upload_chunk(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
+pub(super) fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
     let raw = headers
         .get("x-chunk-index")
         .ok_or_else(|| AppError::BadRequest("missing X-Chunk-Index header".into()))?
@@ -211,7 +211,7 @@ fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
         .map_err(|_| AppError::BadRequest("X-Chunk-Index must be a non-negative integer".into()))
 }
 
-fn upload_chunk_storage_key(upload_id: Uuid, chunk_index: u32) -> String {
+pub(super) fn upload_chunk_storage_key(upload_id: Uuid, chunk_index: u32) -> String {
     format!("chunks/{upload_id}/{chunk_index:08}")
 }
 

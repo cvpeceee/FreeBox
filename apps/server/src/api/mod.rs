@@ -48,6 +48,9 @@ pub mod health;
 pub mod keys;
 pub mod oauth;
 
+#[cfg(test)]
+mod tests;
+
 /// Build and return the complete Axum router.
 pub fn router(state: AppState) -> Router {
     // Middleware stack (applied outermost-first, so request-id is set first):
