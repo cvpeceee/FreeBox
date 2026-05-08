@@ -41,19 +41,41 @@ pub(crate) struct PreparedUpload {
     pub chunks: Vec<ChunkCiphertext>,
 }
 
+pub(crate) struct UploadedFile {
+    pub local_path: PathBuf,
+    pub file_id: Uuid,
+}
+
 pub async fn run(
     files: Vec<PathBuf>,
     destination: String,
     parallelism: u8,
     server: &str,
 ) -> Result<()> {
+    let session = Session::load()?;
+    let server = effective_server(server, &session);
+    let uploaded = upload_files(files, destination, parallelism, server, &session).await?;
+
+    for file in uploaded {
+        println!("Uploaded {} as {}", file.local_path.display(), file.file_id);
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn upload_files(
+    files: Vec<PathBuf>,
+    destination: String,
+    parallelism: u8,
+    server: &str,
+    session: &Session,
+) -> Result<Vec<UploadedFile>> {
     if parallelism == 0 || parallelism > 16 {
         anyhow::bail!("parallelism must be between 1 and 16");
     }
 
-    let session = Session::load()?;
-    let server = effective_server(server, &session);
     let client = reqwest::Client::new();
+    let mut uploaded = Vec::with_capacity(files.len());
 
     for file in files {
         let plaintext = tokio::fs::read(&file)
@@ -107,10 +129,13 @@ pub async fn run(
             .json::<UploadCompleteResponse>()
             .await?;
 
-        println!("Uploaded {} as {}", file.display(), complete.file_id);
+        uploaded.push(UploadedFile {
+            local_path: file,
+            file_id: complete.file_id,
+        });
     }
 
-    Ok(())
+    Ok(uploaded)
 }
 
 pub(crate) fn prepare_upload(remote_name: &str, plaintext: &[u8]) -> Result<PreparedUpload> {

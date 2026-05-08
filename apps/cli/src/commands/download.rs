@@ -24,6 +24,18 @@ pub async fn run(remote: String, output: Option<PathBuf>, server: &str) -> Resul
     let file_id = Uuid::parse_str(&remote).context("download currently expects a file UUID")?;
     let session = Session::load()?;
     let server = effective_server(server, &session);
+    let output = download_file(file_id, output, server, &session).await?;
+
+    println!("Downloaded {file_id} to {}", output.display());
+    Ok(())
+}
+
+pub(crate) async fn download_file(
+    file_id: Uuid,
+    output: Option<PathBuf>,
+    server: &str,
+    session: &Session,
+) -> Result<PathBuf> {
     let client = reqwest::Client::new();
 
     let meta = client
@@ -64,8 +76,7 @@ pub async fn run(remote: String, output: Option<PathBuf>, server: &str) -> Resul
         .await
         .with_context(|| format!("failed to write {}", output.display()))?;
 
-    println!("Downloaded {file_id} to {}", output.display());
-    Ok(())
+    Ok(output)
 }
 
 pub(crate) fn file_key_from_envelope(envelope: &str) -> Result<FileKey> {

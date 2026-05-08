@@ -56,4 +56,5 @@ bytes          = { workspace = true }
 base64         = { workspace = true }
 
 [dev-dependencies]
+axum           = { workspace = true }
 tempfile       = "3"
