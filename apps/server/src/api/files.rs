@@ -32,7 +32,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Extension, Json,
 };
@@ -148,13 +148,14 @@ pub async fn upload_chunk(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(upload_id): Path<Uuid>,
-    // Body handled by storage plugin — placeholder here.
+    headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<impl IntoResponse> {
     let user_id = claims.sub;
+    let chunk_index = parse_chunk_index(&headers)?;
 
     // Verify the upload belongs to this user.
-    let _upload = sqlx::query(
+    let upload = sqlx::query(
         "SELECT id, total_chunks, chunks_received FROM uploads WHERE id = $1 AND user_id = $2",
     )
     .bind(upload_id)
@@ -164,22 +165,54 @@ pub async fn upload_chunk(
     .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
     .ok_or(AppError::NotFound(format!("upload {upload_id}")))?;
 
-    // In production: stream `body` directly to the storage provider.
-    // The storage key is deterministic: `chunks/{upload_id}/{chunk_index}`.
-    // Here we validate the body is non-empty.
+    let total_chunks = upload.get::<i32, _>("total_chunks") as u32;
+    if chunk_index >= total_chunks {
+        return Err(AppError::BadRequest(format!(
+            "chunk index {chunk_index} out of range for upload with {total_chunks} chunks"
+        )));
+    }
+
     if body.is_empty() {
         return Err(AppError::BadRequest("chunk body must not be empty".into()));
     }
 
-    // Update the received chunk count.
-    sqlx::query("UPDATE uploads SET chunks_received = chunks_received + 1 WHERE id = $1")
-        .bind(upload_id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let storage_key = upload_chunk_storage_key(upload_id, chunk_index);
+    let already_received = state.storage.exists(&storage_key).await?;
 
-    tracing::trace!(upload_id = %upload_id, "Chunk received");
+    state.storage.put(&storage_key, body).await?;
+
+    // Re-sending a chunk is allowed for resume/retry, but should not make the
+    // upload look more complete than it is.
+    if !already_received {
+        sqlx::query("UPDATE uploads SET chunks_received = chunks_received + 1 WHERE id = $1")
+            .bind(upload_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    }
+
+    tracing::trace!(
+        upload_id = %upload_id,
+        chunk_index,
+        storage_key = %storage_key,
+        "Chunk stored"
+    );
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
+    let raw = headers
+        .get("x-chunk-index")
+        .ok_or_else(|| AppError::BadRequest("missing X-Chunk-Index header".into()))?
+        .to_str()
+        .map_err(|_| AppError::BadRequest("X-Chunk-Index must be valid ASCII".into()))?;
+
+    raw.parse::<u32>()
+        .map_err(|_| AppError::BadRequest("X-Chunk-Index must be a non-negative integer".into()))
+}
+
+fn upload_chunk_storage_key(upload_id: Uuid, chunk_index: u32) -> String {
+    format!("chunks/{upload_id}/{chunk_index:08}")
 }
 
 /// `POST /api/v1/files/upload/:upload_id/complete` — Phase 3: finalise upload.
