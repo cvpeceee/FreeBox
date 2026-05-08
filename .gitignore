@@ -1,0 +1,53 @@
+# =============================================================================
+# FreeBox — .gitignore
+# =============================================================================
+
+# Rust build artifacts
+target/
+target-*/
+**/*.rs.bk
+
+# Node.js / pnpm
+node_modules/
+.pnpm-store/
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+
+# Tauri
+apps/desktop/src-tauri/target/
+
+# Environment / secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Test / coverage artifacts
+coverage/
+*.lcov
+junit.xml
+
+# Turbo cache
+.turbo/
+
+# SQLx offline query cache (commit this — enables offline builds in CI)
+# .sqlx/         <-- intentionally NOT ignored
+
+# Logs
+*.log
+logs/
+
+# MinIO data (local dev)
+infra/.minio-data/

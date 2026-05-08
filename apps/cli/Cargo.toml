@@ -1,0 +1,53 @@
+[package]
+name        = "fbx"
+version     = "0.1.0"
+edition     = "2021"
+description = "FreeBox CLI — manage your encrypted cloud from the terminal"
+license     = "Apache-2.0"
+
+[[bin]]
+name = "fbx"
+path = "src/main.rs"
+
+[dependencies]
+freebox-core   = { workspace = true }
+freebox-crypto = { workspace = true }
+
+# CLI framework — generates --help, subcommands, completions
+clap           = { version = "4.5", features = ["derive", "env", "color"] }
+
+# Async runtime
+tokio          = { workspace = true }
+
+# HTTP client for API calls
+reqwest        = { version = "0.12", features = ["json", "stream", "multipart"] }
+
+# Progress bars and spinners
+indicatif      = "0.17"
+
+# Interactive prompts (password input, confirmations)
+dialoguer      = "0.11"
+
+# Colored terminal output
+console        = "0.15"
+
+# Config file (~/.config/freebox/config.toml)
+config         = "0.14"
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+
+# Secure credential storage (OS keychain)
+keyring        = "2.3"
+
+# Error handling
+anyhow         = { workspace = true }
+
+# Logging
+tracing        = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utilities
+uuid           = { workspace = true }
+chrono         = { workspace = true }
+bytes          = { workspace = true }
+base64         = { workspace = true }

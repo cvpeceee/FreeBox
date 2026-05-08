@@ -1,0 +1,20 @@
+[package]
+name        = "freebox-storage-s3"
+version     = "0.1.0"
+edition     = "2021"
+description = "Amazon S3 / MinIO storage backend for FreeBox (via Apache OpenDAL)"
+license     = "Apache-2.0"
+
+[dependencies]
+freebox-core = { workspace = true }
+opendal      = { workspace = true }
+async-trait  = { workspace = true }
+bytes        = { workspace = true }
+tokio        = { workspace = true }
+anyhow       = { workspace = true }
+thiserror    = { workspace = true }
+tracing      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+uuid         = { workspace = true }
+url          = "2.5"

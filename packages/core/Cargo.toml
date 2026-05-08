@@ -1,0 +1,31 @@
+[package]
+name        = "freebox-core"
+version     = "0.1.0"
+edition     = "2021"
+description = "FreeBox plugin API contracts — traits, events, and storage abstractions"
+license     = "Apache-2.0 OR MIT"   # dual-licensed for max ecosystem compatibility
+repository  = "https://github.com/freebox-io/freebox"
+keywords    = ["freebox", "plugin", "storage", "e2ee"]
+
+[dependencies]
+# Async traits require this macro until Rust stabilises async fn in traits
+async-trait = { workspace = true }
+
+# Core types
+bytes       = { workspace = true }
+uuid        = { workspace = true }
+chrono      = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+url         = "2"
+
+# Error handling
+thiserror   = { workspace = true }
+anyhow      = { workspace = true }
+
+# Async / concurrency
+tokio       = { workspace = true }
+futures     = { workspace = true }
+
+# Tracing
+tracing     = { workspace = true }

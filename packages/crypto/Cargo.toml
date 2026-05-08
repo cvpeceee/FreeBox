@@ -1,0 +1,58 @@
+[package]
+name        = "freebox-crypto"
+version     = "0.1.0"
+edition     = "2021"
+description = "E2EE cryptographic primitives for FreeBox — Signal Protocol, MLS, AES-GCM, Argon2id"
+license     = "Apache-2.0"
+repository  = "https://github.com/freebox-io/freebox"
+
+# WASM target: compiled to WebAssembly for use in the web and mobile clients.
+# Build with: cargo build --target wasm32-unknown-unknown
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# --- Authenticated encryption ---
+# AES-256-GCM: NIST-approved, hardware-accelerated on x86/ARM.
+aes-gcm   = { workspace = true }
+
+# --- Key derivation ---
+# Argon2id: memory-hard KDF. Recommended by OWASP for password hashing.
+argon2    = { workspace = true }
+
+# --- Asymmetric cryptography ---
+# Ed25519: used for identity key signing (deterministic Schnorr-like).
+ed25519-dalek = { workspace = true }
+# X25519: Diffie-Hellman for key exchange (X3DH and ratchet).
+x25519-dalek  = { workspace = true }
+
+# --- Hashing ---
+# BLAKE3: 3× faster than SHA-256; used for content hashing and dedup.
+blake3    = { workspace = true }
+
+# --- Randomness ---
+rand      = { workspace = true }
+
+# --- Secure memory ---
+# Zeroize: wipes key material from RAM when values are dropped.
+# This prevents key leakage through memory dumps or swap.
+zeroize   = { workspace = true }
+
+# --- Serialization ---
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+serde-big-array = "0.5"
+base64      = { workspace = true }
+hex         = { workspace = true }
+
+# --- Error handling ---
+thiserror   = { workspace = true }
+anyhow      = { workspace = true }
+
+# --- Utilities ---
+bytes       = { workspace = true }
+uuid        = { workspace = true }
+
+[dev-dependencies]
+# Property-based testing — critical for cryptographic code.
+proptest    = "1.4"

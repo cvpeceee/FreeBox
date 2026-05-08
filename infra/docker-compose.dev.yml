@@ -1,0 +1,104 @@
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 17 — primary database (metadata, users, file records)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: freebox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: freebox
+      POSTGRES_USER: freebox
+      POSTGRES_PASSWORD: freebox_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freebox"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Dragonfly — Redis-compatible cache (25× faster than Redis)
+  # ---------------------------------------------------------------------------
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: freebox-cache
+    restart: unless-stopped
+    command: dragonfly --maxmemory=512mb --save_schedule=""
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock: -1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible local object storage
+  # ---------------------------------------------------------------------------
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: freebox-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console (web UI)
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # NATS JetStream — message queue / event bus
+  # ---------------------------------------------------------------------------
+  nats:
+    image: nats:2.10-alpine
+    container_name: freebox-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222"]  # -js enables JetStream, -m enables monitoring
+    ports:
+      - "4222:4222"   # Client connections
+      - "8222:8222"   # HTTP monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # MinIO bucket initializer — creates the `freebox` bucket automatically
+  # ---------------------------------------------------------------------------
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: freebox-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/freebox &&
+        mc anonymous set none local/freebox &&
+        echo 'MinIO bucket ready'
+      "
+    restart: "no"
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  default:
+    name: freebox-dev

@@ -1,0 +1,86 @@
+[workspace]
+# FreeBox Rust workspace — all crates are members of this workspace
+# to share Cargo.lock and allow cross-crate optimizations.
+members = [
+    # Core platform
+    "packages/core",
+    "packages/crypto",
+    # "packages/sync-engine",     # TODO: scaffold
+
+    # Applications
+    "apps/server",
+    "apps/cli",
+
+    # Storage plugins (first-party)
+    "plugins/storage-local",
+    "plugins/storage-s3",
+    # "plugins/storage-gcs",      # TODO: scaffold
+
+    # Feature plugins (first-party)
+    # "plugins/messaging",        # TODO: scaffold
+    # "plugins/mail",             # TODO: scaffold
+]
+
+# Workspace-wide dependency versions — pin once, use everywhere.
+# This prevents version mismatches across crates.
+[workspace.dependencies]
+# Async runtime
+tokio          = { version = "1.37", features = ["full"] }
+tokio-util     = { version = "0.7" }
+
+# Web framework
+axum           = { version = "0.7", features = ["multipart", "ws", "macros"] }
+tower          = { version = "0.4" }
+tower-http     = { version = "0.5", features = ["trace", "compression-full", "cors", "request-id"] }
+
+# Serialization
+serde          = { version = "1", features = ["derive"] }
+serde_json     = { version = "1" }
+
+# Database
+sqlx           = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+
+# Storage abstraction (Apache OpenDAL — 50+ backends)
+opendal        = { version = "0.47", features = ["services-s3", "services-gcs", "services-fs"] }
+
+# Cryptography (audited crates from RustCrypto & Signal)
+aes-gcm        = { version = "0.10" }          # AES-256-GCM authenticated encryption
+argon2         = { version = "0.5" }            # Password hashing (memory-hard)
+blake3         = { version = "1.5" }            # Content hashing / deduplication
+ed25519-dalek  = { version = "2.1", features = ["rand_core"] }  # Identity key pairs (signing)
+x25519-dalek   = { version = "2.0", features = ["static_secrets"] }           # Key exchange (X3DH)
+rand           = { version = "0.8" }
+zeroize        = { version = "1.7", features = ["derive"] }  # Wipe secrets from memory
+
+# Error handling
+anyhow         = { version = "1" }
+thiserror      = { version = "1" }
+
+# Observability
+tracing        = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Utilities
+uuid           = { version = "1.8", features = ["v4", "serde"] }
+chrono         = { version = "0.4", features = ["serde"] }
+bytes          = { version = "1" }
+async-trait    = { version = "0.1" }
+futures        = { version = "0.3" }
+base64         = { version = "0.22" }
+hex            = { version = "0.4" }
+
+# Internal crates
+freebox-core   = { path = "packages/core" }
+freebox-crypto = { path = "packages/crypto" }
+
+[profile.release]
+# Maximum performance for production builds
+opt-level     = 3
+lto           = "fat"       # Link-time optimization across all crates
+codegen-units = 1           # Single codegen unit for maximum optimization
+panic         = "abort"     # Smaller binary, no unwinding overhead
+strip         = true        # Strip debug symbols from release binary
+
+[profile.dev]
+# Fast incremental builds for development
+opt-level = 1               # Minimal optimization for faster compile

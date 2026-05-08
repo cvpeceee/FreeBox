@@ -1,0 +1,17 @@
+[plugin]
+id          = "storage-local"
+name        = "Local Filesystem Storage"
+version     = "1.0.0"
+api_version = "^1.0"
+author      = "FreeBox Team"
+license     = "Apache-2.0"
+description = "Store encrypted files on the local filesystem. Ideal for development and self-hosted deployments on a single machine."
+
+[plugin.capabilities]
+provides = ["storage.provider"]
+requires = []
+
+[plugin.config]
+# Root directory where encrypted chunks are stored.
+# FreeBox creates this directory if it does not exist.
+root = { type = "string", required = true, description = "Absolute path to the storage root directory" }

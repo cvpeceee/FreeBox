@@ -1,0 +1,22 @@
+[plugin]
+id          = "storage-s3"
+name        = "Amazon S3 Storage"
+version     = "1.0.0"
+api_version = "^1.0"
+author      = "FreeBox Team"
+license     = "Apache-2.0"
+description = "Store encrypted files on Amazon S3 or any S3-compatible service (MinIO, Backblaze B2, Cloudflare R2, etc.)"
+
+[plugin.capabilities]
+provides = ["storage.provider"]
+requires = []
+
+# JSON Schema for plugin configuration.
+# Validated against user config at load time.
+[plugin.config]
+bucket         = { type = "string",  required = true,  description = "S3 bucket name" }
+region         = { type = "string",  required = false, default = "us-east-1" }
+endpoint       = { type = "string",  required = false, description = "Custom endpoint for MinIO / R2 / etc." }
+access_key     = { type = "string",  required = false, description = "Leave empty to use IAM role / env vars" }
+secret_key     = { type = "string",  required = false, secret = true }
+path_style     = { type = "boolean", required = false, default = false, description = "Use path-style URLs (required for MinIO)" }
