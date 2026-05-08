@@ -127,6 +127,7 @@ Public (no auth):
   POST /api/v1/auth/register                Create account + upload prekey bundle
   POST /api/v1/auth/login                   Authenticate, returns JWT pair
   POST /api/v1/auth/refresh                 Rotate refresh token
+  GET  /api/v1/auth/salt/:username          Fetch non-secret client Argon2id salt
   GET  /api/v1/auth/oauth/:provider         Initiate OAuth2 flow (GitHub/Google/Microsoft/Apple/Facebook)
   GET  /api/v1/auth/oauth/:provider/callback  OAuth2 callback (code + PKCE exchange)
 

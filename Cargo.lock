@@ -1250,7 +1250,9 @@ name = "fbx"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "argon2",
  "base64 0.22.1",
+ "blake3",
  "bytes",
  "chrono",
  "clap",
@@ -1261,9 +1263,11 @@ dependencies = [
  "freebox-crypto",
  "indicatif",
  "keyring",
+ "rand 0.8.6",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

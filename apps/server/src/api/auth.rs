@@ -12,7 +12,7 @@
 //! - Login uses a generic error message to prevent user enumeration.
 
 use axum::{
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{header, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -104,6 +104,12 @@ pub struct LoginRequest {
 #[derive(Deserialize)]
 pub struct RefreshRequest {
     pub refresh_token: String,
+}
+
+#[derive(Serialize)]
+pub struct SaltResponse {
+    pub username: String,
+    pub argon2_salt: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +274,36 @@ pub async fn login(
     )
     .await?;
     Ok(Json(tokens))
+}
+
+/// `GET /api/v1/auth/salt/:username`
+///
+/// Returns the non-secret client-side Argon2id salt for password login.
+/// The CLI needs this to reproduce the same client-side password hash before
+/// sending credentials to `/auth/login`.
+pub async fn get_salt(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<impl IntoResponse> {
+    validate_username(&username)?;
+
+    let row = sqlx::query(
+        r#"
+        SELECT username, argon2_salt
+        FROM users
+        WHERE username = $1 AND deleted_at IS NULL AND argon2_salt IS NOT NULL
+        "#,
+    )
+    .bind(&username)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    .ok_or(AppError::NotFound(format!("user {username}")))?;
+
+    Ok(Json(SaltResponse {
+        username: row.get::<String, _>("username"),
+        argon2_salt: row.get::<String, _>("argon2_salt"),
+    }))
 }
 
 /// `POST /api/v1/auth/refresh`

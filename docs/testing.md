@@ -24,6 +24,8 @@ Examples:
 
 ```text
 apps/server/src/api/tests/files.rs
+apps/cli/src/commands/upload/tests.rs
+apps/cli/src/session/tests.rs
 packages/crypto/src/encryption.rs
 packages/core/src/event.rs
 ```
@@ -60,4 +62,4 @@ from unit tests so local feedback stays fast.
 - `packages/crypto`: chunk encryption, key derivation, X3DH, ratchet behavior.
 - `packages/core`: error formatting, event contracts, plugin registry.
 - `apps/server`: auth validation, JWTs, OAuth helpers, file upload helper logic.
-
+- `apps/cli`: session persistence, auth hashing, upload preparation, download helpers.

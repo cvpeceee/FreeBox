@@ -75,6 +75,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/refresh", post(auth::refresh))
+        .route("/api/v1/auth/salt/:username", get(auth::get_salt))
         // OAuth2 third-party authentication (GitHub, Google, Microsoft, Apple, Facebook).
         .route("/api/v1/auth/oauth/:provider", get(oauth::initiate))
         .route(
