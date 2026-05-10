@@ -14,6 +14,7 @@ path = "src/main.rs"
 freebox-core   = { workspace = true }
 freebox-crypto = { workspace = true }
 freebox-storage-local = { path = "../../plugins/storage-local" }
+freebox-storage-s3    = { path = "../../plugins/storage-s3" }
 
 # Web framework
 axum           = { workspace = true }

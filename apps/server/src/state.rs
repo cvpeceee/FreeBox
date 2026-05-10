@@ -8,7 +8,10 @@ use std::sync::Arc;
 use freebox_core::storage::StorageProvider;
 use sqlx::PgPool;
 
-use crate::config::{Config, OAuthConfig};
+use crate::{
+    config::{Config, OAuthConfig},
+    rate_limit::{RateLimiter, SharedRateLimiter},
+};
 
 /// The shared state available to every request handler.
 ///
@@ -26,17 +29,24 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     /// OAuth2 provider configuration (providers are opt-in via env vars).
     pub oauth: OAuthConfig,
+    /// In-process API rate limiter.
+    pub rate_limiter: SharedRateLimiter,
 }
 
 impl AppState {
     pub fn new(config: Config, db: PgPool, storage: Arc<dyn StorageProvider>) -> Self {
         let oauth = config.oauth.clone();
+        let rate_limiter = Arc::new(RateLimiter::new(
+            config.rate_limit_requests,
+            std::time::Duration::from_secs(config.rate_limit_window_secs),
+        ));
         Self {
             config: Arc::new(config),
             db,
             storage,
             http_client: reqwest::Client::new(),
             oauth,
+            rate_limiter,
         }
     }
 }

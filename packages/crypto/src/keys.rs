@@ -19,7 +19,7 @@
 //! - One-time prekeys are single-use. The server deletes a prekey after it has
 //!   been handed to a peer. If the supply runs low the client replenishes them.
 
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
@@ -29,6 +29,8 @@ use argon2::{
     password_hash::{rand_core::OsRng as Argon2OsRng, SaltString},
     Argon2, Params, Version,
 };
+
+pub const MAX_ONE_TIME_PREKEYS: usize = 1_000;
 
 // ---------------------------------------------------------------------------
 // Master secret
@@ -194,6 +196,15 @@ pub struct OneTimePrekey {
     pub public_key: [u8; 32],
 }
 
+impl OneTimePrekey {
+    pub fn validate_public(&self) -> anyhow::Result<()> {
+        if self.public_key == [0u8; 32] {
+            anyhow::bail!("one-time prekey {} has an all-zero public key", self.id);
+        }
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Prekey bundle (uploaded to key server)
 // ---------------------------------------------------------------------------
@@ -213,6 +224,45 @@ pub struct PrekeyBundle {
 }
 
 impl PrekeyBundle {
+    /// Validate public key material uploaded to the server.
+    ///
+    /// This does not prove the client owns the corresponding private keys, but
+    /// it rejects malformed JSON, obviously invalid public keys, duplicate
+    /// one-time prekey IDs, and signed prekeys whose signature does not match
+    /// the uploaded identity key.
+    pub fn validate_public(&self) -> anyhow::Result<()> {
+        if self.identity_key == [0u8; 32] {
+            anyhow::bail!("identity key must not be all zeros");
+        }
+        if self.signed_prekey.public_key == [0u8; 32] {
+            anyhow::bail!("signed prekey public key must not be all zeros");
+        }
+        if self.one_time_prekeys.len() > MAX_ONE_TIME_PREKEYS {
+            anyhow::bail!(
+                "too many one-time prekeys: max {}, got {}",
+                MAX_ONE_TIME_PREKEYS,
+                self.one_time_prekeys.len()
+            );
+        }
+
+        let identity = VerifyingKey::from_bytes(&self.identity_key)
+            .map_err(|e| anyhow::anyhow!("invalid identity key: {e}"))?;
+        let signature = ed25519_dalek::Signature::from_bytes(&self.signed_prekey.signature);
+        identity
+            .verify_strict(&self.signed_prekey.public_key, &signature)
+            .map_err(|e| anyhow::anyhow!("signed prekey signature verification failed: {e}"))?;
+
+        let mut seen_ids = std::collections::BTreeSet::new();
+        for prekey in &self.one_time_prekeys {
+            prekey.validate_public()?;
+            if !seen_ids.insert(prekey.id) {
+                anyhow::bail!("duplicate one-time prekey id {}", prekey.id);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Generate a complete prekey bundle.
     ///
     /// `one_time_count` is typically 100. The server stores these and
@@ -312,5 +362,31 @@ mod tests {
         let (bundle, _, _) = PrekeyBundle::generate(&identity, 10);
         assert_eq!(bundle.one_time_prekeys.len(), 10);
         assert_eq!(bundle.identity_key, *identity.verifying_key_bytes());
+    }
+
+    #[test]
+    fn prekey_bundle_validation_accepts_generated_bundle() {
+        let identity = IdentityKeyPair::generate();
+        let (bundle, _, _) = PrekeyBundle::generate(&identity, 10);
+
+        bundle.validate_public().unwrap();
+    }
+
+    #[test]
+    fn prekey_bundle_validation_rejects_tampered_signed_prekey() {
+        let identity = IdentityKeyPair::generate();
+        let (mut bundle, _, _) = PrekeyBundle::generate(&identity, 10);
+        bundle.signed_prekey.public_key[0] ^= 0x01;
+
+        assert!(bundle.validate_public().is_err());
+    }
+
+    #[test]
+    fn prekey_bundle_validation_rejects_duplicate_one_time_ids() {
+        let identity = IdentityKeyPair::generate();
+        let (mut bundle, _, _) = PrekeyBundle::generate(&identity, 2);
+        bundle.one_time_prekeys[1].id = bundle.one_time_prekeys[0].id;
+
+        assert!(bundle.validate_public().is_err());
     }
 }

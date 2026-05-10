@@ -31,7 +31,7 @@
 //! - Metadata: file_id, chunk count, upload timestamp, user_id
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Extension, Json,
@@ -45,6 +45,11 @@ use crate::{
     error::{AppError, Result},
     state::AppState,
 };
+
+/// The CLI currently serializes encrypted chunks as JSON, so a 4 MiB plaintext
+/// chunk can become much larger on the wire. Keep this explicit until the
+/// upload protocol switches to a compact binary chunk envelope.
+pub const MAX_UPLOAD_CHUNK_BODY_BYTES: usize = 32 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -90,9 +95,47 @@ pub struct FileMetaResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Deserialize)]
+pub struct FileListQuery {
+    /// Maximum number of files to return (1–200, default 50).
+    pub limit: Option<i64>,
+    /// Number of files to skip for pagination (default 0).
+    pub offset: Option<i64>,
+}
+
 #[derive(Serialize)]
 pub struct FileListResponse {
     pub files: Vec<FileMetaResponse>,
+    /// Total number of files matching the query (ignores limit/offset).
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// File metadata extended with soft-delete timestamp — used in trash listing.
+#[derive(Serialize)]
+pub struct TrashFileResponse {
+    pub file_id: Uuid,
+    pub encrypted_name: String,
+    pub size_bytes: u64,
+    pub total_chunks: u32,
+    pub content_hash: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize)]
+pub struct TrashListResponse {
+    pub files: Vec<TrashFileResponse>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+#[derive(Deserialize)]
+pub struct RenameFileRequest {
+    /// New encrypted file name (AES-GCM encrypted, base64). Must not be empty.
+    pub encrypted_name: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +218,7 @@ pub async fn upload_chunk(
     if body.is_empty() {
         return Err(AppError::BadRequest("chunk body must not be empty".into()));
     }
+    validate_chunk_body_size(body.len())?;
 
     let storage_key = chunk_storage_key(upload_id, chunk_index);
     let already_received = state.storage.exists(&storage_key).await?;
@@ -213,6 +257,16 @@ pub(super) fn parse_chunk_index(headers: &HeaderMap) -> Result<u32> {
 
 pub(super) fn chunk_storage_key(file_id: Uuid, chunk_index: u32) -> String {
     format!("chunks/{file_id}/{chunk_index:08}")
+}
+
+pub(super) fn validate_chunk_body_size(size: usize) -> Result<()> {
+    if size > MAX_UPLOAD_CHUNK_BODY_BYTES {
+        return Err(AppError::PayloadTooLarge(format!(
+            "chunk body exceeds {} bytes",
+            MAX_UPLOAD_CHUNK_BODY_BYTES
+        )));
+    }
+    Ok(())
 }
 
 /// `POST /api/v1/files/upload/:upload_id/complete` — Phase 3: finalise upload.
@@ -285,26 +339,37 @@ pub async fn upload_complete(
     ))
 }
 
-/// `GET /api/v1/files` — list all files for the authenticated user.
+/// `GET /api/v1/files` — paginated file list for the authenticated user.
+///
+/// Query parameters: `limit` (1–200, default 50), `offset` (default 0).
 pub async fn list_files(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Query(params): Query<FileListQuery>,
 ) -> Result<impl IntoResponse> {
     let user_id = claims.sub;
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let offset = params.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query(
         r#"
         SELECT id, encrypted_name, size_bytes, total_chunks,
-               encrypted_key_envelope, content_hash, created_at
+               encrypted_key_envelope, content_hash, created_at,
+               COUNT(*) OVER() AS total_count
         FROM files
         WHERE user_id = $1 AND deleted_at IS NULL
         ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3
         "#,
     )
     .bind(user_id)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let total = rows.first().map(|r| r.get::<i64, _>("total_count")).unwrap_or(0);
 
     let files = rows
         .into_iter()
@@ -319,7 +384,7 @@ pub async fn list_files(
         })
         .collect();
 
-    Ok(Json(FileListResponse { files }))
+    Ok(Json(FileListResponse { files, total, limit, offset }))
 }
 
 /// `GET /api/v1/files/:file_id` — get metadata for a single file.
@@ -420,5 +485,135 @@ pub async fn delete_file(
     }
 
     tracing::info!(file_id = %file_id, user_id = %user_id, "File deleted (soft)");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `GET /api/v1/files/trash` — list soft-deleted files (trash) for the user.
+///
+/// Only files deleted within the past 30 days are shown (after that they are
+/// eligible for hard deletion by a background job).
+/// Query parameters: `limit` (1–200, default 50), `offset` (default 0).
+pub async fn list_trash(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<FileListQuery>,
+) -> Result<impl IntoResponse> {
+    let user_id = claims.sub;
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let offset = params.offset.unwrap_or(0).max(0);
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, encrypted_name, size_bytes, total_chunks,
+               content_hash, created_at, deleted_at,
+               COUNT(*) OVER() AS total_count
+        FROM files
+        WHERE user_id = $1
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - INTERVAL '30 days'
+        ORDER BY deleted_at DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let total = rows.first().map(|r| r.get::<i64, _>("total_count")).unwrap_or(0);
+
+    let files = rows
+        .into_iter()
+        .map(|r| TrashFileResponse {
+            file_id: r.get::<Uuid, _>("id"),
+            encrypted_name: r.get::<String, _>("encrypted_name"),
+            size_bytes: r.get::<i64, _>("size_bytes") as u64,
+            total_chunks: r.get::<i32, _>("total_chunks") as u32,
+            content_hash: r.get::<String, _>("content_hash"),
+            created_at: r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            deleted_at: r.get::<chrono::DateTime<chrono::Utc>, _>("deleted_at"),
+        })
+        .collect();
+
+    Ok(Json(TrashListResponse { files, total, limit, offset }))
+}
+
+/// `POST /api/v1/files/:file_id/restore` — restore a file from trash.
+///
+/// Only succeeds if the file is currently soft-deleted and was deleted within
+/// the past 30 days. After the retention window the file is no longer
+/// restorable and will be hard-deleted by the cleanup job.
+pub async fn restore_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(file_id): Path<Uuid>,
+) -> Result<impl IntoResponse> {
+    let user_id = claims.sub;
+
+    let affected = sqlx::query(
+        r#"
+        UPDATE files
+        SET deleted_at = NULL
+        WHERE id = $1
+          AND user_id = $2
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - INTERVAL '30 days'
+        "#,
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    .rows_affected();
+
+    if affected == 0 {
+        // Could be: not found, not in trash, or outside retention window.
+        return Err(AppError::NotFound(format!(
+            "file {file_id} is not in trash or the 30-day restore window has expired"
+        )));
+    }
+
+    tracing::info!(file_id = %file_id, user_id = %user_id, "File restored from trash");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `PATCH /api/v1/files/:file_id` — update the encrypted name of a file.
+///
+/// The server cannot read the new name — it stores only the encrypted bytes.
+/// The client is responsible for encrypting the new name with the same key
+/// envelope that was provided during upload.
+pub async fn rename_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(file_id): Path<Uuid>,
+    Json(req): Json<RenameFileRequest>,
+) -> Result<impl IntoResponse> {
+    if req.encrypted_name.trim().is_empty() {
+        return Err(AppError::BadRequest("encrypted_name must not be empty".into()));
+    }
+
+    let affected = sqlx::query(
+        r#"
+        UPDATE files
+        SET encrypted_name = $1
+        WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
+        "#,
+    )
+    .bind(&req.encrypted_name)
+    .bind(file_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    .rows_affected();
+
+    if affected == 0 {
+        return Err(AppError::NotFound(format!("file {file_id}")));
+    }
+
+    tracing::info!(file_id = %file_id, user_id = %claims.sub, "File renamed");
     Ok(StatusCode::NO_CONTENT)
 }

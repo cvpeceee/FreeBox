@@ -357,6 +357,9 @@ docker compose -f infra/docker-compose.dev.yml up -d
 # 3. Run database migrations
 cd apps/server && sqlx migrate run
 
+# After updates, always run new migrations before starting the server.
+# Includes account audit event storage used by OAuth reactivation logs.
+
 # 4. Run the test suite (crypto crate has no infra dependency)
 cargo test --workspace
 
@@ -365,6 +368,15 @@ cargo watch -x "run -p freebox-server"
 
 # 6. Start the web app (separate terminal)
 cd apps/web && pnpm dev
+```
+
+For internet-facing deployments, set these explicitly:
+
+```bash
+RATE_LIMIT_REQUESTS=600
+RATE_LIMIT_WINDOW_SECS=60
+OAUTH_REACTIVATION_MAX_AGE_DAYS=30
+ADMIN_USER_IDS=<comma-separated-admin-user-uuids>
 ```
 
 ### CLI Quick Start

@@ -6,6 +6,7 @@
 //! See `.env.example` in the repository root for the full list of variables.
 
 use anyhow::Context;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // OAuth provider configuration
@@ -104,6 +105,15 @@ pub struct Config {
     // --- Cache ---
     pub redis_url: String,
 
+    // --- API protection ---
+    pub rate_limit_requests: u32,
+    pub rate_limit_window_secs: u64,
+    /// Max age (days) for automatic OAuth reactivation of soft-deleted users.
+    /// 0 disables the limit (reactivate regardless of deletion age).
+    pub oauth_reactivation_max_age_days: u32,
+    /// Comma-separated UUID allowlist for admin-only API routes.
+    pub admin_user_ids: Vec<Uuid>,
+
     // --- JWT ---
     pub jwt_secret: String,
     /// Access token TTL in seconds (default: 15 minutes).
@@ -114,6 +124,19 @@ pub struct Config {
     // --- Storage ---
     pub storage_provider: String,
     pub storage_local_root: String,
+
+    // --- S3 / Cloudflare R2 storage ---
+    /// S3 bucket name (required when STORAGE_PROVIDER=s3).
+    pub storage_s3_bucket: String,
+    /// AWS region (default: us-east-1; for R2 use "auto").
+    pub storage_s3_region: String,
+    /// Custom endpoint URL for R2 / MinIO / etc.
+    /// R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
+    pub storage_s3_endpoint: String,
+    /// S3 access key ID (or R2 Access Key ID).
+    pub storage_s3_access_key: String,
+    /// S3 secret access key (or R2 Secret Access Key).
+    pub storage_s3_secret_key: String,
 
     // --- Argon2id (password hashing) ---
     pub argon2_memory_kib: u32,
@@ -136,11 +159,23 @@ impl Config {
             database_url: env_require("DATABASE_URL")?,
             db_pool_size: env_parse("DB_POOL_SIZE", 10)?,
             redis_url: env_or("REDIS_URL", "redis://127.0.0.1:6379"),
+            rate_limit_requests: env_parse("RATE_LIMIT_REQUESTS", 600)?,
+            rate_limit_window_secs: env_parse("RATE_LIMIT_WINDOW_SECS", 60)?,
+            oauth_reactivation_max_age_days: env_parse(
+                "OAUTH_REACTIVATION_MAX_AGE_DAYS",
+                30,
+            )?,
+            admin_user_ids: env_parse_uuid_list("ADMIN_USER_IDS")?,
             jwt_secret: env_require("JWT_SECRET")?,
             jwt_access_ttl_secs: env_parse("JWT_ACCESS_TTL_SECS", 900)?, // 15 min
             jwt_refresh_ttl_secs: env_parse("JWT_REFRESH_TTL_SECS", 2_592_000)?, // 30 days
             storage_provider: env_or("STORAGE_PROVIDER", "local"),
             storage_local_root: env_or("STORAGE_LOCAL_ROOT", "./data/freebox-storage"),
+            storage_s3_bucket: env_or("STORAGE_S3_BUCKET", ""),
+            storage_s3_region: env_or("STORAGE_S3_REGION", "auto"),
+            storage_s3_endpoint: env_or("STORAGE_S3_ENDPOINT", ""),
+            storage_s3_access_key: env_or("STORAGE_S3_ACCESS_KEY", ""),
+            storage_s3_secret_key: env_or("STORAGE_S3_SECRET_KEY", ""),
             argon2_memory_kib: env_parse("ARGON2_MEMORY_KIB", 65_536)?,
             argon2_iterations: env_parse("ARGON2_ITERATIONS", 3)?,
             argon2_parallelism: env_parse("ARGON2_PARALLELISM", 4)?,
@@ -174,5 +209,62 @@ where
             .parse::<T>()
             .map_err(|e| anyhow::anyhow!("cannot parse `{key}={val}`: {e}")),
         Err(_) => Ok(default),
+    }
+}
+
+fn env_parse_uuid_list(key: &str) -> anyhow::Result<Vec<Uuid>> {
+    let raw = match std::env::var(key) {
+        Ok(value) => value,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            Uuid::parse_str(value)
+                .map_err(|e| anyhow::anyhow!("cannot parse `{key}` UUID `{value}`: {e}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::env_parse_uuid_list;
+
+    #[test]
+    fn env_parse_uuid_list_returns_empty_when_missing() {
+        std::env::remove_var("ADMIN_USER_IDS_TEST");
+
+        let ids = env_parse_uuid_list("ADMIN_USER_IDS_TEST").unwrap();
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn env_parse_uuid_list_parses_comma_separated_values() {
+        std::env::set_var(
+            "ADMIN_USER_IDS_TEST",
+            "11111111-1111-1111-1111-111111111111, 22222222-2222-2222-2222-222222222222",
+        );
+
+        let ids = env_parse_uuid_list("ADMIN_USER_IDS_TEST").unwrap();
+
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0].to_string(), "11111111-1111-1111-1111-111111111111");
+        assert_eq!(ids[1].to_string(), "22222222-2222-2222-2222-222222222222");
+
+        std::env::remove_var("ADMIN_USER_IDS_TEST");
+    }
+
+    #[test]
+    fn env_parse_uuid_list_rejects_invalid_uuid() {
+        std::env::set_var("ADMIN_USER_IDS_TEST", "not-a-uuid");
+
+        let err = env_parse_uuid_list("ADMIN_USER_IDS_TEST").unwrap_err();
+
+        assert!(err.to_string().contains("cannot parse `ADMIN_USER_IDS_TEST`"));
+
+        std::env::remove_var("ADMIN_USER_IDS_TEST");
     }
 }

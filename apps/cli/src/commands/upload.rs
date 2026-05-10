@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use freebox_crypto::encryption::{encrypt_chunk, encrypt_file, ChunkCiphertext, FileKey};
+use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -102,25 +104,59 @@ pub(crate) async fn upload_files(
             .json::<UploadInitResponse>()
             .await?;
 
-        for chunk in &prepared.chunks {
-            let body = serde_json::to_vec(chunk)?;
-            client
-                .put(api_url(
-                    server,
-                    &format!("/api/v1/files/upload/{}", init_response.upload_id),
-                ))
-                .bearer_auth(&session.access_token)
-                .header("X-Chunk-Index", chunk.index.to_string())
-                .body(body)
-                .send()
-                .await?
-                .error_for_status()?;
-        }
+        // Progress bar tracks chunks, not bytes, since we stream without buffering all.
+        let pb = ProgressBar::new(prepared.chunks.len() as u64);
+        pb.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} chunks  {msg}",
+            )
+            .unwrap()
+            .progress_chars("=> "),
+        );
+        pb.set_message(
+            file.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        );
+
+        let upload_id = init_response.upload_id;
+        let token = session.access_token.clone();
+        let server_owned = server.to_owned();
+
+        futures::stream::iter(prepared.chunks)
+            .map(|chunk| {
+                let client = client.clone();
+                let token = token.clone();
+                let url = api_url(&server_owned, &format!("/api/v1/files/upload/{upload_id}"));
+                let pb = pb.clone();
+                async move {
+                    let chunk_index = chunk.index;
+                    let body = serde_json::to_vec(&chunk).context("failed to serialize chunk")?;
+                    client
+                        .put(&url)
+                        .bearer_auth(&token)
+                        .header("X-Chunk-Index", chunk_index.to_string())
+                        .body(body)
+                        .send()
+                        .await?
+                        .error_for_status()?;
+                    pb.inc(1);
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .buffer_unordered(parallelism as usize)
+            .collect::<Vec<Result<()>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        pb.finish_and_clear();
 
         let complete = client
             .post(api_url(
                 server,
-                &format!("/api/v1/files/upload/{}/complete", init_response.upload_id),
+                &format!("/api/v1/files/upload/{upload_id}/complete"),
             ))
             .bearer_auth(&session.access_token)
             .send()

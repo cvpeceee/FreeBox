@@ -28,6 +28,11 @@ use freebox_core::{
 };
 use opendal::{layers::LoggingLayer, services::S3, Operator};
 
+pub mod bucket;
+mod sigv4;
+
+pub use bucket::{create_bucket, ensure_bucket_exists, list_buckets, BucketInfo};
+
 // ---------------------------------------------------------------------------
 // Plugin struct
 // ---------------------------------------------------------------------------
@@ -127,11 +132,33 @@ impl Plugin for S3Plugin {
             .layer(LoggingLayer::default()) // logs all S3 operations via `tracing`
             .finish();
 
-        // Verify connectivity by listing the root prefix.
-        operator
-            .list("/")
-            .await
-            .map_err(|e| Error::storage(format!("S3 connectivity check failed: {e}")))?;
+        // Verify connectivity. On NoSuchBucket, create the bucket automatically
+        // so users don't have to log into the cloud console just to get started.
+        let list_result = operator.list("/").await;
+        match list_result {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("NoSuchBucket") => {
+                let ak = ctx.config_str("access_key").ok_or_else(|| {
+                    Error::storage("no access_key configured — cannot auto-create bucket")
+                })?;
+                let sk = ctx.config_str("secret_key").ok_or_else(|| {
+                    Error::storage("no secret_key configured — cannot auto-create bucket")
+                })?;
+                let endpoint = ctx
+                    .config_str("endpoint")
+                    .unwrap_or("https://s3.amazonaws.com");
+                bucket::ensure_bucket_exists(endpoint, &bucket, &region, ak, sk).await?;
+                // Re-verify after creation.
+                operator.list("/").await.map_err(|e| {
+                    Error::storage(format!(
+                        "S3 connectivity check failed after bucket creation: {e}"
+                    ))
+                })?;
+            }
+            Err(e) => {
+                return Err(Error::storage(format!("S3 connectivity check failed: {e}")))
+            }
+        }
 
         self.operator
             .set(operator)

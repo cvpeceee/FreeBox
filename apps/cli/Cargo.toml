@@ -25,6 +25,9 @@ tokio          = { workspace = true }
 # HTTP client for API calls
 reqwest        = { version = "0.12", features = ["json", "stream", "multipart"] }
 
+# Async stream combinators (parallel chunk uploads)
+futures        = { workspace = true }
+
 # Progress bars and spinners
 indicatif      = "0.17"
 
@@ -36,6 +39,7 @@ console        = "0.15"
 
 # Config file (~/.config/freebox/config.toml)
 config         = "0.14"
+toml           = "0.8"
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 

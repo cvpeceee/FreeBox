@@ -1,5 +1,6 @@
 //! CLI command implementations.
 
+pub mod bucket;
 pub mod download;
 pub mod list;
 pub mod mail;

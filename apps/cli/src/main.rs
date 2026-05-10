@@ -23,9 +23,9 @@
 //! fbx mail compose     Compose and send encrypted email
 //! fbx mail read        Read inbox
 //!
-//! fbx provider add     Register a new storage backend (S3, GCS, local...)
-//! fbx provider list    List configured backends
-//! fbx provider rm      Remove a backend
+//! fbx datasource list  List available and configured storage data sources
+//! fbx datasource add   Register a cloud or local storage data source
+//! fbx datasource rm    Remove a configured data source
 //!
 //! fbx plugin install   Install a FreeBox plugin
 //! fbx plugin list      List installed plugins
@@ -36,6 +36,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod auth;
+mod client;
 mod commands;
 mod config;
 mod session;
@@ -153,10 +154,17 @@ pub enum Commands {
         cmd: MailCommands,
     },
 
-    /// Manage storage provider backends.
-    Provider {
+    /// Manage storage data sources.
+    #[command(visible_alias = "provider")]
+    Datasource {
         #[command(subcommand)]
         cmd: ProviderCommands,
+    },
+
+    /// Manage storage buckets (list, create).
+    Bucket {
+        #[command(subcommand)]
+        cmd: commands::bucket::BucketCommand,
     },
 
     /// Manage FreeBox plugins.
@@ -229,17 +237,17 @@ pub enum MailCommands {
 
 #[derive(Subcommand)]
 pub enum ProviderCommands {
-    /// Add a storage backend.
+    /// Add a storage data source.
     Add {
-        /// Provider type: s3, gcs, b2, local, ipfs, webdav.
+        /// Data source type: cloudflare-r2, aws-s3, minio, backblaze-b2, local.
         provider: String,
         // Further flags depend on the provider; parsed interactively.
     },
-    /// List configured backends.
+    /// List available and configured data sources.
     List,
-    /// Remove a backend.
+    /// Remove a configured data source.
     Remove { provider_id: String },
-    /// Test connectivity to a backend.
+    /// Test connectivity to a data source.
     Test { provider_id: String },
 }
 
@@ -287,23 +295,33 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    // If the user didn't pass --server or FREEBOX_SERVER, fall back to the
+    // value from the config file (which itself defaults to https://freebox.io).
+    let cfg_server;
+    let server = if cli.server == session::DEFAULT_SERVER {
+        cfg_server = config::CliConfig::load().server;
+        &cfg_server
+    } else {
+        &cli.server
+    };
+
     match cli.command {
-        Commands::Auth { cmd } => auth::handle(cmd, &cli.server).await,
+        Commands::Auth { cmd } => auth::handle(cmd, server).await,
 
         Commands::Upload {
             files,
             destination,
             parallelism,
-        } => commands::upload::run(files, destination, parallelism, &cli.server).await,
+        } => commands::upload::run(files, destination, parallelism, server).await,
 
         Commands::Download { remote, output } => {
-            commands::download::run(remote, output, &cli.server).await
+            commands::download::run(remote, output, server).await
         }
 
-        Commands::List { path, long } => commands::list::run(path, long, &cli.server).await,
+        Commands::List { path, long } => commands::list::run(path, long, server).await,
 
         Commands::Remove { remote, permanent } => {
-            commands::remove::run(remote, permanent, &cli.server).await
+            commands::remove::run(remote, permanent, server).await
         }
 
         Commands::Sync {
@@ -311,11 +329,12 @@ async fn main() -> Result<()> {
             remote,
             watch,
             direction,
-        } => commands::sync::run(local, remote, watch, direction, &cli.server).await,
+        } => commands::sync::run(local, remote, watch, direction, server).await,
 
-        Commands::Msg { cmd } => commands::msg::handle(cmd, &cli.server).await,
-        Commands::Mail { cmd } => commands::mail::handle(cmd, &cli.server).await,
-        Commands::Provider { cmd } => commands::provider::handle(cmd, &cli.server).await,
-        Commands::Plugin { cmd } => commands::plugin::handle(cmd, &cli.server).await,
+        Commands::Msg { cmd } => commands::msg::handle(cmd, server).await,
+        Commands::Mail { cmd } => commands::mail::handle(cmd, server).await,
+        Commands::Datasource { cmd } => commands::provider::handle(cmd, server).await,
+        Commands::Bucket { cmd } => commands::bucket::handle(cmd, server).await,
+        Commands::Plugin { cmd } => commands::plugin::handle(cmd, server).await,
     }
 }

@@ -21,6 +21,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use freebox_crypto::OneTimePrekey;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -29,6 +30,8 @@ use crate::{
     error::{AppError, Result},
     state::AppState,
 };
+
+const MAX_REPLENISH_ONE_TIME_PREKEYS: usize = 1_000;
 
 /// `GET /api/v1/keys/:user_id` — fetch a peer's prekey bundle.
 ///
@@ -60,13 +63,14 @@ pub async fn get_bundle(
 pub async fn replenish_one_time(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(new_keys): Json<serde_json::Value>,
+    Json(new_keys): Json<Vec<OneTimePrekey>>,
 ) -> Result<impl IntoResponse> {
     let user_id = claims.sub;
+    validate_one_time_prekey_batch(&new_keys)?;
+    let new_keys = serde_json::to_value(&new_keys)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to serialize prekeys: {e}")))?;
 
     // Merge new one-time prekeys into the existing bundle.
-    // In production, parse and validate the key structures; here we trust
-    // the JSON shape (the client is the only one who can produce valid prekeys).
     sqlx::query(
         r#"
         UPDATE prekey_bundles
@@ -88,4 +92,71 @@ pub async fn replenish_one_time(
 
     tracing::debug!(user_id = %user_id, "One-time prekeys replenished");
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn validate_one_time_prekey_batch(keys: &[OneTimePrekey]) -> Result<()> {
+    if keys.is_empty() {
+        return Err(AppError::BadRequest(
+            "one-time prekey batch must not be empty".into(),
+        ));
+    }
+    if keys.len() > MAX_REPLENISH_ONE_TIME_PREKEYS {
+        return Err(AppError::BadRequest(format!(
+            "too many one-time prekeys: max {}, got {}",
+            MAX_REPLENISH_ONE_TIME_PREKEYS,
+            keys.len()
+        )));
+    }
+
+    let mut seen_ids = std::collections::BTreeSet::new();
+    for key in keys {
+        key.validate_public()
+            .map_err(|e| AppError::BadRequest(format!("invalid one-time prekey: {e}")))?;
+        if !seen_ids.insert(key.id) {
+            return Err(AppError::BadRequest(format!(
+                "duplicate one-time prekey id {}",
+                key.id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_one_time_prekey_batch;
+    use freebox_crypto::OneTimePrekey;
+
+    fn prekey(id: u32) -> OneTimePrekey {
+        OneTimePrekey {
+            id,
+            public_key: [id as u8 + 1; 32],
+        }
+    }
+
+    #[test]
+    fn validate_one_time_prekey_batch_accepts_valid_keys() {
+        validate_one_time_prekey_batch(&[prekey(1), prekey(2)]).unwrap();
+    }
+
+    #[test]
+    fn validate_one_time_prekey_batch_rejects_empty_batch() {
+        assert!(validate_one_time_prekey_batch(&[]).is_err());
+    }
+
+    #[test]
+    fn validate_one_time_prekey_batch_rejects_duplicate_ids() {
+        assert!(validate_one_time_prekey_batch(&[prekey(1), prekey(1)]).is_err());
+    }
+
+    #[test]
+    fn validate_one_time_prekey_batch_rejects_zero_public_key() {
+        let key = OneTimePrekey {
+            id: 1,
+            public_key: [0; 32],
+        };
+
+        assert!(validate_one_time_prekey_batch(&[key]).is_err());
+    }
 }

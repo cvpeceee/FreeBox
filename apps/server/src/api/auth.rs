@@ -19,6 +19,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use freebox_crypto::PrekeyBundle;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -182,6 +183,10 @@ pub async fn register(
             "prekey_bundle exceeds 1 MiB limit".into(),
         ));
     }
+    let prekey_bundle = validate_prekey_bundle(&req.prekey_bundle)?;
+    let prekey_bundle = serde_json::to_value(prekey_bundle).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("failed to serialize prekey bundle: {e}"))
+    })?;
 
     // Server-side hash: re-hash the client-provided hash with Argon2id.
     // This ensures a database leak reveals only double-hashed values.
@@ -226,7 +231,7 @@ pub async fn register(
         "#,
     )
     .bind(user_id)
-    .bind(&req.prekey_bundle)
+    .bind(&prekey_bundle)
     .execute(&mut *tx)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
@@ -239,6 +244,15 @@ pub async fn register(
 
     let tokens = issue_token_pair(&state, user_id, &req.username).await?;
     Ok((StatusCode::CREATED, Json(tokens)))
+}
+
+fn validate_prekey_bundle(value: &serde_json::Value) -> Result<PrekeyBundle> {
+    let bundle: PrekeyBundle = serde_json::from_value(value.clone())
+        .map_err(|e| AppError::BadRequest(format!("invalid prekey_bundle shape: {e}")))?;
+    bundle
+        .validate_public()
+        .map_err(|e| AppError::BadRequest(format!("invalid prekey_bundle: {e}")))?;
+    Ok(bundle)
 }
 
 /// `POST /api/v1/auth/login`
@@ -529,6 +543,26 @@ mod tests {
     #[test]
     fn validate_email_accepts_valid() {
         assert!(validate_email("user@example.com").is_ok());
+    }
+
+    #[test]
+    fn validate_prekey_bundle_accepts_generated_bundle() {
+        let identity = freebox_crypto::IdentityKeyPair::generate();
+        let (bundle, _, _) = PrekeyBundle::generate(&identity, 10);
+        let value = serde_json::to_value(bundle).unwrap();
+
+        validate_prekey_bundle(&value).unwrap();
+    }
+
+    #[test]
+    fn validate_prekey_bundle_rejects_malformed_json() {
+        let value = serde_json::json!({
+            "identity_key": [1, 2, 3],
+            "signed_prekey": {},
+            "one_time_prekeys": []
+        });
+
+        assert!(validate_prekey_bundle(&value).is_err());
     }
 
     #[test]

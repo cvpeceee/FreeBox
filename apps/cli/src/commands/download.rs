@@ -5,11 +5,13 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use freebox_crypto::encryption::{decrypt_file, ChunkCiphertext, FileKey};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
     auth::api_url,
+    client::send_with_refresh,
     session::{effective_server, Session},
 };
 
@@ -20,28 +22,77 @@ struct FileMetaResponse {
     encrypted_key_envelope: String,
 }
 
-pub async fn run(remote: String, output: Option<PathBuf>, server: &str) -> Result<()> {
-    let file_id = Uuid::parse_str(&remote).context("download currently expects a file UUID")?;
-    let session = Session::load()?;
-    let server = effective_server(server, &session);
-    let output = download_file(file_id, output, server, &session).await?;
+#[derive(Deserialize)]
+struct FileSummary {
+    file_id: Uuid,
+    encrypted_name: String,
+}
 
-    println!("Downloaded {file_id} to {}", output.display());
+#[derive(Deserialize)]
+struct FileListResponse {
+    files: Vec<FileSummary>,
+}
+
+pub async fn run(remote: String, output: Option<PathBuf>, server: &str) -> Result<()> {
+    let mut session = Session::load()?;
+    let server = effective_server(server, &session).to_owned();
+
+    // Accept either a UUID or a plain file name / path.
+    let file_id = match Uuid::parse_str(&remote) {
+        Ok(id) => id,
+        Err(_) => resolve_name_to_id(&remote, &server, &mut session).await?,
+    };
+
+    let output = download_file(file_id, output, &server, &mut session).await?;
+    println!("Downloaded to {}", output.display());
     Ok(())
+}
+
+/// Look up a file ID by (decoded) remote name.
+/// Performs a prefix / suffix match so `report.pdf`, `docs/report.pdf`, and
+/// `remote://docs/report.pdf` all find the same file.
+async fn resolve_name_to_id(name: &str, server: &str, session: &mut Session) -> Result<Uuid> {
+    let http = reqwest::Client::new();
+    let url = api_url(server, "/api/v1/files");
+
+    let list = send_with_refresh(session, |token| http.get(&url).bearer_auth(token))
+        .await?
+        .error_for_status()?
+        .json::<FileListResponse>()
+        .await?;
+
+    // Normalise the search term: strip remote:// prefix and leading slash.
+    let needle = name.trim_start_matches("remote://").trim_start_matches('/');
+
+    // Find the first file whose decoded name ends with the needle.
+    let matched = list.files.into_iter().find(|f| {
+        let decoded = STANDARD
+            .decode(&f.encrypted_name)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_default();
+        let decoded_norm = decoded
+            .trim_start_matches("remote://")
+            .trim_start_matches('/');
+        // Accept exact match or suffix match (e.g. "report.pdf" matches "docs/report.pdf").
+        decoded_norm == needle || decoded_norm.ends_with(&format!("/{needle}"))
+    });
+
+    matched
+        .map(|f| f.file_id)
+        .ok_or_else(|| anyhow::anyhow!("no file named '{name}' found — use `fbx ls` to list files"))
 }
 
 pub(crate) async fn download_file(
     file_id: Uuid,
     output: Option<PathBuf>,
     server: &str,
-    session: &Session,
+    session: &mut Session,
 ) -> Result<PathBuf> {
-    let client = reqwest::Client::new();
+    let http = reqwest::Client::new();
+    let meta_url = api_url(server, &format!("/api/v1/files/{file_id}"));
 
-    let meta = client
-        .get(api_url(server, &format!("/api/v1/files/{file_id}")))
-        .bearer_auth(&session.access_token)
-        .send()
+    let meta = send_with_refresh(session, |token| http.get(&meta_url).bearer_auth(token))
         .await?
         .error_for_status()?
         .json::<FileMetaResponse>()
@@ -50,20 +101,28 @@ pub(crate) async fn download_file(
     let key = file_key_from_envelope(&meta.encrypted_key_envelope)?;
     let mut chunks = Vec::with_capacity(meta.total_chunks as usize);
 
+    let pb = ProgressBar::new(meta.total_chunks as u64);
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} chunks")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+
     for chunk_index in 0..meta.total_chunks {
-        let body = client
-            .get(api_url(
-                server,
-                &format!("/api/v1/files/{file_id}/chunk/{chunk_index}"),
-            ))
-            .bearer_auth(&session.access_token)
-            .send()
+        let chunk_url = api_url(
+            server,
+            &format!("/api/v1/files/{file_id}/chunk/{chunk_index}"),
+        );
+        let body = send_with_refresh(session, |token| http.get(&chunk_url).bearer_auth(token))
             .await?
             .error_for_status()?
             .bytes()
             .await?;
         chunks.push(serde_json::from_slice::<ChunkCiphertext>(&body)?);
+        pb.inc(1);
     }
+
+    pb.finish_and_clear();
 
     let plaintext = decrypt_file(&key, &chunks)?;
     let output = resolve_output_path(output, &meta.encrypted_name)?;

@@ -1,7 +1,9 @@
 use axum::http::{HeaderMap, HeaderValue};
 use uuid::Uuid;
 
-use crate::api::files::{chunk_storage_key, parse_chunk_index};
+use crate::api::files::{
+    chunk_storage_key, parse_chunk_index, validate_chunk_body_size, MAX_UPLOAD_CHUNK_BODY_BYTES,
+};
 use crate::error::AppError;
 
 fn headers_with_chunk_index(value: &'static str) -> HeaderMap {
@@ -54,4 +56,16 @@ fn chunk_storage_key_is_stable_and_zero_padded() {
     let key = chunk_storage_key(file_id, 12);
 
     assert_eq!(key, "chunks/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/00000012");
+}
+
+#[test]
+fn validate_chunk_body_size_accepts_configured_limit() {
+    validate_chunk_body_size(MAX_UPLOAD_CHUNK_BODY_BYTES).unwrap();
+}
+
+#[test]
+fn validate_chunk_body_size_rejects_oversized_chunk() {
+    let err = validate_chunk_body_size(MAX_UPLOAD_CHUNK_BODY_BYTES + 1).unwrap_err();
+
+    assert!(matches!(err, AppError::PayloadTooLarge(_)));
 }

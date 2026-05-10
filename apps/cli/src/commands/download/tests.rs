@@ -83,7 +83,7 @@ async fn download_file_fetches_chunks_and_writes_decrypted_plaintext() {
     let output = dir.path().join("downloaded.txt");
     let file_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
 
-    let written = download_file(file_id, Some(output.clone()), &server, &test_session())
+    let written = download_file(file_id, Some(output.clone()), &server, &mut test_session())
         .await
         .unwrap();
 

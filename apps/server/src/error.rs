@@ -33,6 +33,12 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    #[error("Too many requests: {0}")]
+    RateLimited(String),
+
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
     /// Catch-all for unexpected errors — details are logged but NOT returned
     /// to the client (to avoid information leakage).
     #[error("Internal server error")]
@@ -48,6 +54,8 @@ impl IntoResponse for AppError {
             AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "Forbidden"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "Bad Request"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "Conflict"),
+            AppError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "Too Many Requests"),
+            AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),
             AppError::Internal(e) => {
                 // Log the full error chain internally; return a generic message.
                 tracing::error!(error = %e, "Internal server error");

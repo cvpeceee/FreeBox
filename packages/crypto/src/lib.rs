@@ -32,6 +32,7 @@ pub mod signal;
 
 pub use encryption::{decrypt_chunk, encrypt_chunk, ChunkCiphertext, FileKey};
 pub use keys::{
-    derive_keys_from_password, DerivedKeys, IdentityKeyPair, PrekeyBundle, SignedPrekey,
+    derive_keys_from_password, DerivedKeys, IdentityKeyPair, OneTimePrekey, PrekeyBundle,
+    SignedPrekey,
 };
 pub use signal::{x3dh_initiate, x3dh_respond, RatchetSession, X3dhInitiation};

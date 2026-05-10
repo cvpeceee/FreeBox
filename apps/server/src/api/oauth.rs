@@ -35,8 +35,8 @@ use axum::{
     Extension, Json,
 };
 use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -791,10 +791,10 @@ async fn fetch_facebook_profile(
 /// # Resolution order
 ///
 /// 1. **Exact match**: An `oauth_accounts` row exists for `(provider, provider_user_id)`.
-///    → Return the linked `users` row.
+///    → Return the linked `users` row (reactivate if soft-deleted).
 ///
 /// 2. **Email match**: No OAuth link exists, but the provider email matches an existing
-///    `users.email`. → Link the OAuth account to the existing user (account linking).
+///    `users.email`. → Link the OAuth account to the existing user (reactivate if soft-deleted).
 ///
 /// 3. **New user**: No match at all. → Create a new `users` row (NULL password) and
 ///    a new `oauth_accounts` row.
@@ -814,10 +814,10 @@ async fn find_or_create_user(
     // --- 1. Check for existing OAuth link ---
     let existing = sqlx::query(
         r#"
-        SELECT oa.user_id, u.username
+        SELECT oa.user_id, u.username, u.deleted_at
         FROM oauth_accounts oa
         JOIN users u ON u.id = oa.user_id
-        WHERE oa.provider = $1 AND oa.provider_user_id = $2 AND u.deleted_at IS NULL
+        WHERE oa.provider = $1 AND oa.provider_user_id = $2
         "#,
     )
     .bind(provider)
@@ -827,6 +827,36 @@ async fn find_or_create_user(
     .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 
     if let Some(row) = existing {
+        let user_id = row.get::<Uuid, _>("user_id");
+        let username = row.get::<String, _>("username");
+        let deleted_at = row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("deleted_at");
+
+        if let Some(deleted_at) = deleted_at {
+            ensure_reactivation_allowed(state, deleted_at)?;
+
+            sqlx::query("UPDATE users SET deleted_at = NULL WHERE id = $1")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+            write_reactivation_audit_event(
+                &mut tx,
+                user_id,
+                provider,
+                &profile.provider_user_id,
+                "oauth_identity_match",
+                deleted_at,
+            )
+            .await?;
+
+            tracing::info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Reactivated soft-deleted user via OAuth identity match",
+            );
+        }
+
         // Update the last-seen profile info (avatar, email may change).
         sqlx::query(
             r#"
@@ -847,15 +877,12 @@ async fn find_or_create_user(
         tx.commit()
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-        return Ok((
-            row.get::<Uuid, _>("user_id"),
-            row.get::<String, _>("username"),
-        ));
+        return Ok((user_id, username));
     }
 
     // --- 2. Check for email match (account linking) ---
     let email_match = if let Some(email) = &profile.email {
-        sqlx::query("SELECT id, username FROM users WHERE email = $1 AND deleted_at IS NULL")
+        sqlx::query("SELECT id, username, deleted_at FROM users WHERE email = $1")
             .bind(email)
             .fetch_optional(&mut *tx)
             .await
@@ -866,37 +893,56 @@ async fn find_or_create_user(
 
     let (user_id, username) = if let Some(user) = email_match {
         // Link the OAuth account to the existing FreeBox user.
-        (user.get::<Uuid, _>("id"), user.get::<String, _>("username"))
+        // If the user was soft-deleted, reactivate it for a seamless return flow.
+        let user_id = user.get::<Uuid, _>("id");
+        let username = user.get::<String, _>("username");
+        let deleted_at = user.get::<Option<chrono::DateTime<chrono::Utc>>, _>("deleted_at");
+
+        if let Some(deleted_at) = deleted_at {
+            ensure_reactivation_allowed(state, deleted_at)?;
+
+            sqlx::query("UPDATE users SET deleted_at = NULL WHERE id = $1")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+            write_reactivation_audit_event(
+                &mut tx,
+                user_id,
+                provider,
+                &profile.provider_user_id,
+                "oauth_email_match",
+                deleted_at,
+            )
+            .await?;
+
+            tracing::info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Reactivated soft-deleted user via OAuth email match",
+            );
+        }
+
+        (user_id, username)
     } else {
         // --- 3. Create a brand-new user ---
         let user_id = Uuid::new_v4();
-        // Generate a username from the provider profile, with a random suffix for uniqueness.
-        let base_name = profile
-            .username
-            .clone()
-            .unwrap_or_else(|| format!("user_{}", &Uuid::new_v4().to_string()[..8]));
-        // Sanitize: only keep alphanumeric, underscore, hyphen.
-        let sanitized: String = base_name
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-            .take(24) // leave room for suffix
-            .collect();
-        let username = if sanitized.len() < 3 {
-            format!("user_{}", &Uuid::new_v4().to_string()[..8])
-        } else {
-            sanitized
-        };
+        let username = unique_oauth_username(profile);
+        let email = oauth_email(provider, profile);
 
-        sqlx::query(
+        let user = sqlx::query(
             r#"
             INSERT INTO users (id, username, email, password_hash, argon2_salt, created_at)
             VALUES ($1, $2, $3, NULL, NULL, NOW())
+            ON CONFLICT (email) DO UPDATE SET deleted_at = NULL
+            RETURNING id, username
             "#,
         )
         .bind(user_id)
         .bind(&username)
-        .bind(profile.email.as_deref().unwrap_or(""))
-        .execute(&mut *tx)
+        .bind(&email)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             if let Some(db_err) = e.as_database_error() {
@@ -909,14 +955,16 @@ async fn find_or_create_user(
             AppError::Internal(anyhow::anyhow!(e))
         })?;
 
-        (user_id, username)
+        (user.get::<Uuid, _>("id"), user.get::<String, _>("username"))
     };
 
     // Insert the OAuth account link.
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"
         INSERT INTO oauth_accounts (user_id, provider, provider_user_id, provider_email, provider_username, avatar_url)
         VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (provider, provider_user_id) DO NOTHING
+        RETURNING user_id
         "#,
     )
     .bind(user_id)
@@ -925,15 +973,134 @@ async fn find_or_create_user(
     .bind(&profile.email)
     .bind(&profile.username)
     .bind(&profile.avatar_url)
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    if inserted.is_none() {
+        tx.rollback().await.ok();
+        return fetch_linked_oauth_user(state, provider, &profile.provider_user_id).await;
+    }
 
     tx.commit()
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 
     Ok((user_id, username))
+}
+
+async fn fetch_linked_oauth_user(
+    state: &AppState,
+    provider: &str,
+    provider_user_id: &str,
+) -> Result<(Uuid, String)> {
+    let row = sqlx::query(
+        r#"
+        SELECT oa.user_id, u.username
+        FROM oauth_accounts oa
+        JOIN users u ON u.id = oa.user_id
+        WHERE oa.provider = $1 AND oa.provider_user_id = $2 AND u.deleted_at IS NULL
+        "#,
+    )
+    .bind(provider)
+    .bind(provider_user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    .ok_or_else(|| {
+        AppError::Conflict("OAuth account was linked concurrently; please retry the login".into())
+    })?;
+
+    Ok((
+        row.get::<Uuid, _>("user_id"),
+        row.get::<String, _>("username"),
+    ))
+}
+
+fn ensure_reactivation_allowed(
+    state: &AppState,
+    deleted_at: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    let max_days = state.config.oauth_reactivation_max_age_days;
+    if !reactivation_within_window(deleted_at, max_days, chrono::Utc::now()) {
+        return Err(AppError::Conflict(format!(
+            "account was deleted more than {max_days} days ago; contact support to restore it"
+        )));
+    }
+    Ok(())
+}
+
+fn reactivation_within_window(
+    deleted_at: chrono::DateTime<chrono::Utc>,
+    max_days: u32,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if max_days == 0 {
+        return true;
+    }
+
+    now.signed_duration_since(deleted_at) <= chrono::Duration::days(max_days as i64)
+}
+
+async fn write_reactivation_audit_event(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    provider: &str,
+    provider_user_id: &str,
+    reason: &str,
+    deleted_at: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    let details = serde_json::json!({
+        "reason": reason,
+        "deleted_at": deleted_at,
+    });
+
+    sqlx::query(
+        r#"
+        INSERT INTO account_audit_events (
+            user_id, event_type, source, provider, provider_user_id, details
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(user_id)
+    .bind("account_reactivated")
+    .bind("oauth")
+    .bind(provider)
+    .bind(provider_user_id)
+    .bind(details)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    Ok(())
+}
+
+fn unique_oauth_username(profile: &OAuthUserProfile) -> String {
+    let base_name = profile
+        .username
+        .as_deref()
+        .unwrap_or("user")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect::<String>();
+    let base_name = if base_name.len() < 3 {
+        "user".to_owned()
+    } else {
+        base_name
+    };
+    let prefix: String = base_name.chars().take(23).collect();
+    format!("{}-{}", prefix, &Uuid::new_v4().to_string()[..8])
+}
+
+fn oauth_email(provider: &str, profile: &OAuthUserProfile) -> String {
+    profile
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("oauth+{provider}+{}@freebox.local", Uuid::new_v4()))
 }
 
 // ---------------------------------------------------------------------------
@@ -963,6 +1130,170 @@ pub struct ListProvidersResponse {
     /// Whether this account has a password set (useful for UI: show "set password"
     /// prompt if the user wants to unlink their last OAuth provider).
     pub has_password: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ListAuditEventsQuery {
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct AccountAuditEvent {
+    pub id: Uuid,
+    pub event_type: String,
+    pub source: String,
+    pub provider: Option<String>,
+    pub provider_user_id: Option<String>,
+    pub details: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize)]
+pub struct ListAccountAuditEventsResponse {
+    pub events: Vec<AccountAuditEvent>,
+}
+
+#[derive(Deserialize)]
+pub struct ListAdminAuditEventsQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub user_id: Option<Uuid>,
+    pub event_type: Option<String>,
+    pub source: Option<String>,
+    pub provider: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AdminAccountAuditEvent {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub event_type: String,
+    pub source: String,
+    pub provider: Option<String>,
+    pub provider_user_id: Option<String>,
+    pub details: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize)]
+pub struct ListAdminAuditEventsResponse {
+    pub events: Vec<AdminAccountAuditEvent>,
+    pub limit: i64,
+    pub offset: i64,
+    pub next_offset: Option<i64>,
+}
+
+/// `GET /api/v1/auth/audit-events`
+///
+/// Returns recent account-level audit events for the authenticated user.
+pub async fn list_account_audit_events(
+    State(state): State<AppState>,
+    Extension(claims): Extension<super::auth::Claims>,
+    Query(query): Query<ListAuditEventsQuery>,
+) -> Result<impl IntoResponse> {
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, event_type, source, provider, provider_user_id, details, created_at
+        FROM account_audit_events
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(claims.sub)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let events = rows
+        .into_iter()
+        .map(|r| AccountAuditEvent {
+            id: r.get::<Uuid, _>("id"),
+            event_type: r.get::<String, _>("event_type"),
+            source: r.get::<String, _>("source"),
+            provider: r.get::<Option<String>, _>("provider"),
+            provider_user_id: r.get::<Option<String>, _>("provider_user_id"),
+            details: r.get::<serde_json::Value, _>("details"),
+            created_at: r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+        })
+        .collect();
+
+    Ok(Json(ListAccountAuditEventsResponse { events }))
+}
+
+/// `GET /api/v1/admin/audit-events`
+///
+/// Returns recent account-level audit events across all users for configured admins.
+pub async fn list_account_audit_events_admin(
+    State(state): State<AppState>,
+    Extension(claims): Extension<super::auth::Claims>,
+    Query(query): Query<ListAdminAuditEventsQuery>,
+) -> Result<impl IntoResponse> {
+    if !is_admin_user(&state.config.admin_user_ids, claims.sub) {
+        return Err(AppError::Forbidden(
+            "admin privileges required for account audit event access".into(),
+        ));
+    }
+
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, user_id, event_type, source, provider, provider_user_id, details, created_at
+        FROM account_audit_events
+        WHERE ($1::uuid IS NULL OR user_id = $1)
+          AND ($2::text IS NULL OR event_type = $2)
+          AND ($3::text IS NULL OR source = $3)
+          AND ($4::text IS NULL OR provider = $4)
+        ORDER BY created_at DESC
+        LIMIT $5
+        OFFSET $6
+        "#,
+    )
+    .bind(query.user_id)
+    .bind(query.event_type.as_deref())
+    .bind(query.source.as_deref())
+    .bind(query.provider.as_deref())
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let events: Vec<AdminAccountAuditEvent> = rows
+        .into_iter()
+        .map(|r| AdminAccountAuditEvent {
+            id: r.get::<Uuid, _>("id"),
+            user_id: r.get::<Uuid, _>("user_id"),
+            event_type: r.get::<String, _>("event_type"),
+            source: r.get::<String, _>("source"),
+            provider: r.get::<Option<String>, _>("provider"),
+            provider_user_id: r.get::<Option<String>, _>("provider_user_id"),
+            details: r.get::<serde_json::Value, _>("details"),
+            created_at: r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+        })
+        .collect();
+
+    let next_offset = if events.len() == limit as usize {
+        Some(offset + limit)
+    } else {
+        None
+    };
+
+    Ok(Json(ListAdminAuditEventsResponse {
+        events,
+        limit,
+        offset,
+        next_offset,
+    }))
+}
+
+fn is_admin_user(admin_user_ids: &[Uuid], user_id: Uuid) -> bool {
+    admin_user_ids.contains(&user_id)
 }
 
 /// `GET /api/v1/auth/providers`
@@ -1149,6 +1480,23 @@ pub async fn unlink_provider(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `GET /api/v1/auth/oauth/configured`  (public — no auth required)
+///
+/// Returns the list of OAuth provider names that the server currently has
+/// credentials configured for. The client uses this to show/hide social login
+/// buttons on the login and register pages.
+pub async fn list_configured_providers(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let all = ["github", "google", "microsoft", "apple", "facebook"];
+    let enabled: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|p| state.oauth.get(p).is_some())
+        .collect();
+    Json(serde_json::json!({ "providers": enabled }))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1241,5 +1589,83 @@ mod tests {
         let jwk: AppleJwk = serde_json::from_str(json).unwrap();
         assert_eq!(jwk.kid, "abc123");
         assert_eq!(jwk.e, "AQAB");
+    }
+
+    #[test]
+    fn unique_oauth_username_adds_suffix_and_sanitizes() {
+        let profile = OAuthUserProfile {
+            provider_user_id: "123".into(),
+            email: Some("alice@example.com".into()),
+            username: Some("alice<script>".into()),
+            avatar_url: None,
+        };
+
+        let username = unique_oauth_username(&profile);
+
+        assert!(username.starts_with("alicescript-"));
+        assert!(username.len() <= 32);
+        assert!(username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    }
+
+    #[test]
+    fn oauth_email_uses_provider_email_when_present() {
+        let profile = OAuthUserProfile {
+            provider_user_id: "123".into(),
+            email: Some("alice@example.com".into()),
+            username: None,
+            avatar_url: None,
+        };
+
+        assert_eq!(oauth_email("github", &profile), "alice@example.com");
+    }
+
+    #[test]
+    fn oauth_email_generates_synthetic_email_when_missing() {
+        let profile = OAuthUserProfile {
+            provider_user_id: "123".into(),
+            email: None,
+            username: None,
+            avatar_url: None,
+        };
+
+        let email = oauth_email("apple", &profile);
+
+        assert!(email.starts_with("oauth+apple+"));
+        assert!(email.ends_with("@freebox.local"));
+    }
+
+    #[test]
+    fn reactivation_window_allows_recent_deletions() {
+        let now = chrono::Utc::now();
+        let deleted_at = now - chrono::Duration::days(7);
+
+        assert!(reactivation_within_window(deleted_at, 30, now));
+    }
+
+    #[test]
+    fn reactivation_window_blocks_stale_deletions() {
+        let now = chrono::Utc::now();
+        let deleted_at = now - chrono::Duration::days(31);
+
+        assert!(!reactivation_within_window(deleted_at, 30, now));
+    }
+
+    #[test]
+    fn reactivation_window_zero_disables_limit() {
+        let now = chrono::Utc::now();
+        let deleted_at = now - chrono::Duration::days(3650);
+
+        assert!(reactivation_within_window(deleted_at, 0, now));
+    }
+
+    #[test]
+    fn is_admin_user_matches_configured_allowlist() {
+        let admin = Uuid::new_v4();
+        let regular = Uuid::new_v4();
+
+        assert!(is_admin_user(&[admin], admin));
+        assert!(!is_admin_user(&[admin], regular));
     }
 }
