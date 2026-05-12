@@ -1,0 +1,92 @@
+classDiagram
+    direction TB
+
+    class AppState {
+        +config: Arc~Config~
+        +db: PgPool
+        +storage: Arc~dyn StorageProvider~
+        +http_client: reqwest::Client
+        +oauth: OAuthConfig
+        +rate_limiter: SharedRateLimiter
+        +new(config) AppState$ 
+    }
+
+    class Config {
+        +host: String
+        +port: u16
+        +database_url: String
+        +db_pool_size: u32
+        +redis_url: String
+        +rate_limit_requests: u32
+        +rate_limit_window_secs: u64
+        +oauth_reactivation_max_age_days: u32
+        +admin_user_ids: Vec~Uuid~
+        +jwt_secret: String
+        +jwt_access_ttl_secs: u64
+        +jwt_refresh_ttl_secs: u64
+        +storage_provider: String
+        +storage_local_root: String
+        +storage_s3_bucket: String
+        +storage_s3_region: String
+        +storage_s3_endpoint: String
+        +storage_s3_access_key: String
+        +storage_s3_secret_key: String
+        +argon2_memory_kib: u32
+        +argon2_iterations: u32
+        +argon2_parallelism: u32
+        +oauth: OAuthConfig
+        +from_env() Result~Config~$
+    }
+
+    class OAuthConfig {
+        +github: Option~OAuthProviderConfig~
+        +google: Option~OAuthProviderConfig~
+        +microsoft: Option~OAuthProviderConfig~
+        +apple: Option~OAuthProviderConfig~
+        +facebook: Option~OAuthProviderConfig~
+        +from_env() OAuthConfig$
+        +get() Option~OAuthProviderConfig~
+    }
+
+    class OAuthProviderConfig {
+        +client_id: String
+        +client_secret: String
+        +redirect_uri: String
+    }
+
+    class AppError {
+        <<enum>>
+        NotFound(String)
+        Unauthorized(String)
+        Forbidden(String)
+        BadRequest(String)
+        Conflict(String)
+        RateLimited(String)
+        PayloadTooLarge(String)
+        Internal(anyhow::Error)
+    }
+
+    class Claims {
+        +sub: Uuid
+        +username: String
+        +exp: usize
+        +iat: usize
+        +new(user_id, ttl_secs) Claims$
+    }
+
+    class RateLimiter {
+        -max_requests: usize
+        -window: Duration
+        -max_buckets: usize
+        -buckets: Mutex~HashMap~String, VecDeque~Instant~~~
+        +new(max_requests, window) RateLimiter$
+        +allow(key) bool
+    }
+
+    AppState --> Config : holds Arc
+    AppState --> OAuthConfig : holds
+    AppState --> RateLimiter : holds Arc
+    Config --> OAuthConfig : contains
+    OAuthConfig --> OAuthProviderConfig : 0..5 providers
+    AppError ..|> IntoResponse : Axum impl
+    AppError ..> `freebox_core::Error` : From impl

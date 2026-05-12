@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>guardian-report-2026-05-11.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="guardian-report--2026-05-11">Guardian Report — 2026-05-11</h1>
+<h2 id="diagrams-created">Diagrams Created</h2>
+<ul>
+<li><input type="checkbox" id="checkbox0" checked="true"><label for="checkbox0"><a href="diagrams/system-overview.md">system-overview.md</a> — crate dependency graph + file upload/download sequence diagrams</label></li>
+<li><input type="checkbox" id="checkbox1" checked="true"><label for="checkbox1"><a href="diagrams/core-traits.md">core-traits.md</a> — <code>Plugin</code>, <code>StorageProvider</code>, <code>EventBus</code> class diagram + implementors</label></li>
+<li><input type="checkbox" id="checkbox2" checked="true"><label for="checkbox2"><a href="diagrams/crypto-types.md">crypto-types.md</a> — key hierarchy, encryption pipeline, X3DH flow, domain constants</label></li>
+<li><input type="checkbox" id="checkbox3" checked="true"><label for="checkbox3"><a href="diagrams/server-api.md">server-api.md</a> — <code>AppState</code>, <code>Config</code>, <code>AppError</code>, <code>Claims</code>, route assembly flowchart</label></li>
+<li><input type="checkbox" id="checkbox4" checked="true"><label for="checkbox4"><a href="diagrams/server-auth.md">server-auth.md</a> — password auth, OAuth2, JWT claims</label></li>
+<li><input type="checkbox" id="checkbox5" checked="true"><label for="checkbox5"><a href="diagrams/server-files.md">server-files.md</a> — upload protocol state machine, file lifecycle, handler→storage chain</label></li>
+<li><input type="checkbox" id="checkbox6" checked="true"><label for="checkbox6"><a href="diagrams/server-middleware.md">server-middleware.md</a> — middleware pipeline, rate limiter design</label></li>
+<li><input type="checkbox" id="checkbox7" checked="true"><label for="checkbox7"><a href="diagrams/cli-commands.md">cli-commands.md</a> — command tree, session/config types, upload flow</label></li>
+<li><input type="checkbox" id="checkbox8" checked="true"><label for="checkbox8"><a href="diagrams/cli-auth-flow.md">cli-auth-flow.md</a> — login, auto-refresh, registration sequence</label></li>
+<li><input type="checkbox" id="checkbox9" checked="true"><label for="checkbox9"><a href="diagrams/plugin-lifecycle.md">plugin-lifecycle.md</a> — lifecycle state machine, discovery, event flow</label></li>
+<li><input type="checkbox" id="checkbox10" checked="true"><label for="checkbox10"><a href="diagrams/web-components.md">web-components.md</a> — component tree, Zustand store, API client, TS types</label></li>
+</ul>
+<hr>
+<h2 id="documentation-sync">Documentation Sync</h2>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Status</th>
+<th>Drift Found</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>README.md</code></td>
+<td><img class="emoji" alt="warning" src="data:image/png;base64,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" /> <strong>Drift</strong></td>
+<td>States web app is &quot;Next.js 15 (App Router, React 19)&quot; but actual code is a <strong>React + Vite SPA</strong> (no Next.js). Repository structure shows <code>apps/web/</code> as <code>Next.js 15</code> — inaccurate. Tech stack table lists &quot;Next.js 15&quot; — should say &quot;React 18/19 + Vite&quot;.</td>
+</tr>
+<tr>
+<td><code>README.md</code></td>
+<td><img class="emoji" alt="warning" src="data:image/png;base64,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" /> <strong>Drift</strong></td>
+<td>States <code>STORAGE_S3_ACCESS_KEY_ID</code> / <code>STORAGE_S3_SECRET_ACCESS_KEY</code> but code uses <code>STORAGE_S3_ACCESS_KEY</code> / <code>STORAGE_S3_SECRET_KEY</code> (no <code>_ID</code> / <code>_ACCESS_</code> suffixes).</td>
+</tr>
+<tr>
+<td><code>docs/architecture.md</code></td>
+<td><img class="emoji" alt="white_check_mark" src="data:image/png;base64,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" /> In sync</td>
+<td>API routes, DB schema, security hardening all match code.</td>
+</tr>
+<tr>
+<td><code>docs/testing.md</code></td>
+<td><img class="emoji" alt="white_check_mark" src="data:image/png;base64,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" /> In sync</td>
+<td>Coverage map matches actual test file locations.</td>
+</tr>
+<tr>
+<td><code>docs/ui-architecture.md</code></td>
+<td><img class="emoji" alt="white_check_mark" src="data:image/png;base64,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" /> In sync</td>
+<td>Correctly describes the React SPA + Vite setup.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="missing-tests">Missing Tests</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Module</th>
+<th>What's Missing</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CRITICAL</strong></td>
+<td><code>packages/crypto/src/signal.rs</code></td>
+<td>No test for <code>x3dh_respond()</code> — only <code>x3dh_initiate()</code> is tested. The responder function is the other half of the handshake.</td>
+</tr>
+<tr>
+<td><strong>HIGH</strong></td>
+<td><code>plugins/storage-s3/src/sigv4.rs</code></td>
+<td>No tests for SigV4 signing. This is security-critical (AWS authentication). Test against known test vectors from AWS docs.</td>
+</tr>
+<tr>
+<td><strong>HIGH</strong></td>
+<td><code>plugins/storage-s3/src/bucket.rs</code></td>
+<td>No unit tests for <code>create_bucket()</code> / <code>list_buckets()</code> / XML parsing.</td>
+</tr>
+<tr>
+<td><strong>HIGH</strong></td>
+<td><code>plugins/storage-local/src/lib.rs</code></td>
+<td>No tests at all for <code>LocalPlugin</code>. Missing: <code>put</code>/<code>get</code>/<code>delete</code>/<code>list</code> round-trip, multipart, <code>on_load</code> config validation.</td>
+</tr>
+<tr>
+<td><strong>HIGH</strong></td>
+<td><code>apps/server/src/api/oauth.rs</code></td>
+<td>Large module (~1500 lines) with tests, but no test for the OAuth <strong>link</strong> / <strong>unlink</strong> / <strong>reactivation</strong> flows.</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/server/src/rate_limit.rs</code></td>
+<td>Has tests for basic allow/deny, but no test for bucket eviction (<code>max_buckets</code> exceeded) or concurrent access.</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/server/src/api/storage.rs</code></td>
+<td>Has tests, but no test for <code>create_bucket()</code> handler (only <code>list_datasources</code> and <code>list_buckets</code>).</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/cli/src/commands/sync.rs</code></td>
+<td>No tests. Sync is a complex feature (direction, watch mode).</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/cli/src/commands/msg.rs</code></td>
+<td>No tests for messaging commands.</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/cli/src/commands/mail.rs</code></td>
+<td>No tests for mail commands.</td>
+</tr>
+<tr>
+<td><strong>MEDIUM</strong></td>
+<td><code>apps/cli/src/commands/list.rs</code></td>
+<td>No tests for <code>fbx ls</code> output formatting.</td>
+</tr>
+<tr>
+<td><strong>LOW</strong></td>
+<td><code>apps/cli/src/commands/remove.rs</code></td>
+<td>No tests for <code>fbx rm</code>.</td>
+</tr>
+<tr>
+<td><strong>LOW</strong></td>
+<td><code>apps/cli/src/commands/plugin.rs</code></td>
+<td>No tests for plugin management commands.</td>
+</tr>
+<tr>
+<td><strong>LOW</strong></td>
+<td><code>packages/core/src/storage.rs</code></td>
+<td>No tests for <code>StorageCapabilities</code> defaults or <code>ObjectMeta</code> serialization.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tech-recommendations">Tech Recommendations</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Current</th>
+<th>Suggestion</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web client hashing</td>
+<td>PBKDF2 via Web Crypto API</td>
+<td>Argon2id via WASM (<code>argon2-browser</code> or custom WASM build)</td>
+<td>The code comments already note PBKDF2 is a temporary workaround. PBKDF2 is weaker than Argon2id for password hashing (not memory-hard).</td>
+</tr>
+<tr>
+<td>S3 bucket ops</td>
+<td>Custom SigV4 + reqwest</td>
+<td><code>aws-sdk-s3</code> crate for bucket management</td>
+<td>The custom SigV4 implementation covers a minimal subset. <code>aws-sdk-s3</code> is officially maintained, handles edge cases (chunked signing, retries, regional endpoints), and reduces audit surface.</td>
+</tr>
+<tr>
+<td>CORS config</td>
+<td><code>CorsLayer::new().allow_origin(Any)</code></td>
+<td>Restrict origins in production</td>
+<td><code>allow_origin(Any)</code> is fine for dev, but production should whitelist the frontend domain. Add <code>CORS_ALLOWED_ORIGINS</code> env var.</td>
+</tr>
+<tr>
+<td>Event Bus</td>
+<td><code>NoopEventBus</code> used at runtime</td>
+<td>Implement a real <code>EventBus</code></td>
+<td>The architecture docs describe NATS JetStream, but the actual code only uses <code>NoopEventBus</code>. Events (e.g., <code>FileUploaded</code>) are never published or consumed.</td>
+</tr>
+<tr>
+<td>Cache</td>
+<td><code>redis_url</code> in Config</td>
+<td>Not used anywhere</td>
+<td><code>Config</code> has a <code>redis_url</code> field, but no code reads from or writes to Redis/Dragonfly. Either implement caching or remove the field.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="architectural-gaps">Architectural Gaps</h2>
+<ul>
+<li>
+<p><strong><code>NoopEventBus</code> everywhere</strong>: The <code>EventBus</code> trait and its typed extensions are well-designed, but the only implementation is <code>NoopEventBus</code> (a no-op). No events are published or subscribed to at runtime. The plugin communication backbone described in the architecture docs does not exist yet.</p>
+</li>
+<li>
+<p><strong>No plugin discovery from filesystem</strong>: The architecture describes plugins being &quot;discovered from the <code>plugins/</code> directory on startup,&quot; but <code>main.rs</code> hard-codes <code>S3Plugin::new()</code> and <code>LocalPlugin::new()</code> based on the <code>STORAGE_PROVIDER</code> env var. There is no dynamic plugin discovery, no <code>plugin.toml</code> loading, no <code>PluginRegistry</code>.</p>
+</li>
+<li>
+<p><strong><code>PluginManifest</code> constructed inline</strong>: Both <code>S3Plugin</code> and <code>LocalPlugin</code> hard-code their manifest in <code>new()</code> rather than loading from <code>plugin.toml</code>. The <code>plugin.toml</code> files exist in the plugin directories but are never read.</p>
+</li>
+<li>
+<p><strong><code>as_storage_provider()</code> never called</strong>: The <code>Plugin</code> trait has <code>is_storage_provider()</code> and <code>as_storage_provider()</code> methods, but the server constructs the <code>StorageProvider</code> directly by casting the plugin <code>Arc</code> rather than going through the trait method.</p>
+</li>
+<li>
+<p><strong>No WebSocket routes</strong>: The architecture and README mention <code>WS /ws/sync</code> and <code>WS /ws/messaging</code> routes for real-time features. These do not exist in the code.</p>
+</li>
+<li>
+<p><strong>Missing <code>ensure_bucket_exists</code></strong>: The <code>bucket.rs</code> module exports <code>ensure_bucket_exists</code> but the S3 plugin's <code>on_load</code> does not call it. The architecture doc says &quot;auto-creates the bucket on first use&quot; — this is not implemented.</p>
+</li>
+</ul>
+<hr>
+<h2 id="code-quality">Code Quality</h2>
+<ul>
+<li>
+<p><strong>Production <code>.unwrap()</code> calls</strong> (7 total):</p>
+<ul>
+<li><code>apps/server/src/main.rs:277,283</code> — <code>.expect()</code> on signal handler install. Acceptable (process would be broken anyway).</li>
+<li><code>apps/server/src/api/oauth.rs:389</code> — <code>.unwrap()</code> on <code>link_user_id</code>. Should use <code>ok_or(AppError::BadRequest(...))</code>.</li>
+<li><code>apps/cli/src/commands/download.rs:107</code> — <code>.unwrap()</code> on <code>ProgressStyle</code>. Low risk (static template).</li>
+<li><code>apps/cli/src/commands/upload.rs:113</code> — <code>.unwrap()</code> on <code>ProgressStyle</code>. Low risk (static template).</li>
+<li><code>apps/cli/src/commands/provider.rs:264</code> — <code>.unwrap()</code> on <code>sources.last()</code> after <code>push()</code>. Safe but brittle.</li>
+<li><code>plugins/storage-s3/src/sigv4.rs:17</code> — <code>.expect(&quot;HMAC accepts any key length&quot;)</code>. Safe (documented invariant).</li>
+</ul>
+</li>
+<li>
+<p><strong>README says &quot;Next.js 15&quot;</strong> for the web frontend, but the actual implementation is <strong>React + Vite</strong> (no Next.js). The <code>apps/web/package.json</code>, <code>vite.config.ts</code>, and <code>App.tsx</code> all confirm this is a plain SPA.</p>
+</li>
+<li>
+<p><strong><code>DerivedKeys</code> struct</strong> is exported from <code>packages/crypto/src/keys.rs</code> and re-exported from <code>lib.rs</code>, but the struct definition and <code>derive_keys_from_password</code> function are only used in tests within the crypto crate itself. The CLI auth module has its own separate key derivation flow.</p>
+</li>
+<li>
+<p><strong><code>MasterSecret</code> in keys.rs</strong> — the <code>SignedPrekey::generate()</code> method uses <code>.unwrap_or_default()</code> on <code>SystemTime::now().duration_since(UNIX_EPOCH)</code>, which silently returns 0 if the clock is before epoch. This is unlikely but could mask issues on embedded/misconfigured systems.</p>
+</li>
+</ul>
+
+</body>
+</html>

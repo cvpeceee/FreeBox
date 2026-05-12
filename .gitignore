@@ -51,3 +51,6 @@ logs/
 
 # MinIO data (local dev)
 infra/.minio-data/
+.snapshots/sponsors.md
+.snapshots/readme.md
+.snapshots/config.json
