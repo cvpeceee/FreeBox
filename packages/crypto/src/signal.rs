@@ -612,4 +612,65 @@ mod tests {
             "domain separation strings must be unique"
         );
     }
+
+    #[test]
+    fn send_chain_exhaustion_returns_error() {
+        let shared_secret = [0xEEu8; 32];
+        let mut alice = RatchetSession::new(&shared_secret, true);
+
+        // Manually advance the send counter to the limit.
+        alice.send_count = MAX_CHAIN_LENGTH;
+
+        let result = alice.next_send_key();
+        assert!(
+            result.is_err(),
+            "next_send_key must fail when chain is exhausted"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("send chain exhausted"),
+            "error message must mention 'send chain exhausted', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn recv_chain_exhaustion_returns_error() {
+        let shared_secret = [0xEEu8; 32];
+        let mut bob = RatchetSession::new(&shared_secret, false);
+
+        bob.recv_count = MAX_CHAIN_LENGTH;
+
+        let result = bob.next_recv_key();
+        assert!(
+            result.is_err(),
+            "next_recv_key must fail when chain is exhausted"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("receive chain exhausted"),
+            "error message must mention 'receive chain exhausted', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn send_and_recv_counts_advance_independently() {
+        let shared_secret = [0x77u8; 32];
+        let mut alice = RatchetSession::new(&shared_secret, true);
+        let mut bob = RatchetSession::new(&shared_secret, false);
+
+        // Alice sends 3 messages.
+        let ct1 = alice.seal(b"msg1").unwrap();
+        let ct2 = alice.seal(b"msg2").unwrap();
+        let ct3 = alice.seal(b"msg3").unwrap();
+
+        assert_eq!(alice.send_count(), 3);
+        assert_eq!(alice.recv_count(), 0);
+
+        bob.open(&ct1).unwrap();
+        bob.open(&ct2).unwrap();
+        bob.open(&ct3).unwrap();
+
+        assert_eq!(bob.recv_count(), 3);
+        assert_eq!(bob.send_count(), 0);
+    }
 }

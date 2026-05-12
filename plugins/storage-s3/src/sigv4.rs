@@ -80,3 +80,6 @@ pub fn sign(
         x_amz_content_sha256: payload_hash,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -269,3 +269,6 @@ impl StorageProvider for LocalPlugin {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests;

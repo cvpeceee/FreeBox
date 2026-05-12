@@ -172,3 +172,10 @@ pub trait StorageProvider: Send + Sync {
     /// Only available when [`StorageCapabilities::presigned_urls`] is `true`.
     async fn presign_get(&self, key: &str, expires: std::time::Duration) -> Result<url::Url>;
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests;

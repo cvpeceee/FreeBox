@@ -32,3 +32,6 @@ pub async fn run(remote: String, permanent: bool, server: &str) -> Result<()> {
     println!("Moved {file_id} to trash (recoverable for 30 days).");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

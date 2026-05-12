@@ -150,3 +150,6 @@ fn extract_tag<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
     let end = s[start..].find(&close).map(|i| start + i)?;
     Some(&s[start..end])
 }
+
+#[cfg(test)]
+mod tests;

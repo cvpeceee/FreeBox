@@ -96,3 +96,6 @@ fn format_size(bytes: u64) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(test)]
+mod tests;
