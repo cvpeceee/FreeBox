@@ -19,6 +19,11 @@ aes-gcm   = { workspace = true }
 # --- Key derivation ---
 # Argon2id: memory-hard KDF. Recommended by OWASP for password hashing.
 argon2    = { workspace = true }
+# PBKDF2-SHA256: used for the client-side auth hash sent to the server.
+# Matches the Web Crypto API implementation in the browser client.
+# When the WASM build ships, the browser will use this crate directly.
+pbkdf2    = { workspace = true }
+sha2      = { workspace = true }
 
 # --- Asymmetric cryptography ---
 # Ed25519: used for identity key signing (deterministic Schnorr-like).

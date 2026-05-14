@@ -46,6 +46,8 @@ opendal        = { version = "0.47", features = ["services-s3", "services-gcs", 
 # Cryptography (audited crates from RustCrypto & Signal)
 aes-gcm        = { version = "0.10" }          # AES-256-GCM authenticated encryption
 argon2         = { version = "0.5" }            # Password hashing (memory-hard)
+pbkdf2         = { version = "0.12", features = ["hmac"] }  # Client-side auth hash (matches Web Crypto API)
+sha2           = { version = "0.10" }           # SHA-256 for PBKDF2
 blake3         = { version = "1.5" }            # Content hashing / deduplication
 ed25519-dalek  = { version = "2.1", features = ["rand_core"] }  # Identity key pairs (signing)
 x25519-dalek   = { version = "2.0", features = ["static_secrets"] }           # Key exchange (X3DH)

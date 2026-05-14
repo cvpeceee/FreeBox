@@ -1,7 +1,6 @@
 //! Authentication command handler for the FreeBox CLI.
 
 use anyhow::{Context, Result};
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use dialoguer::{Input, Password};
 use freebox_crypto::{
     derive_keys_from_password,
@@ -9,6 +8,8 @@ use freebox_crypto::{
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use freebox_crypto::auth_password_hash;
 
 use crate::{session::Session, AuthCommands};
 
@@ -175,13 +176,7 @@ fn prompt_if_missing(value: Option<String>, label: &str) -> Result<String> {
 }
 
 pub(crate) fn client_password_hash(password: &str, salt: &str) -> Result<String> {
-    let salt =
-        SaltString::from_b64(salt).map_err(|e| anyhow::anyhow!("invalid Argon2 salt: {e}"))?;
-    let hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow::anyhow!("client password hash failed: {e}"))?
-        .to_string();
-    Ok(hash)
+    Ok(auth_password_hash(password, salt))
 }
 
 pub(crate) fn registration_prekey_bundle(password: &str, salt: &str) -> Result<serde_json::Value> {
@@ -205,7 +200,13 @@ pub(crate) fn normalize_server_url(server: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use argon2::password_hash::rand_core::OsRng;
+
+    fn random_salt() -> String {
+        // Generate a random 22-char alphanumeric salt for tests
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+        format!("testsalt{t:014}")
+    }
 
     #[test]
     fn api_url_normalizes_slashes() {
@@ -217,7 +218,7 @@ mod tests {
 
     #[test]
     fn client_password_hash_is_deterministic_for_same_salt() {
-        let salt = SaltString::generate(&mut OsRng).to_string();
+        let salt = random_salt();
 
         let h1 = client_password_hash("secret", &salt).unwrap();
         let h2 = client_password_hash("secret", &salt).unwrap();
@@ -227,7 +228,7 @@ mod tests {
 
     #[test]
     fn client_password_hash_changes_with_password() {
-        let salt = SaltString::generate(&mut OsRng).to_string();
+        let salt = random_salt();
 
         let h1 = client_password_hash("secret", &salt).unwrap();
         let h2 = client_password_hash("different", &salt).unwrap();
@@ -237,7 +238,7 @@ mod tests {
 
     #[test]
     fn registration_prekey_bundle_has_expected_shape() {
-        let salt = SaltString::generate(&mut OsRng).to_string();
+        let salt = random_salt();
 
         let bundle = registration_prekey_bundle("secret", &salt).unwrap();
 

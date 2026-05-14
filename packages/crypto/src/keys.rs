@@ -20,8 +20,10 @@
 //!   been handed to a peer. If the supply runs low the client replenishes them.
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use pbkdf2::pbkdf2_hmac;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -304,6 +306,30 @@ impl PrekeyBundle {
 pub struct DerivedKeys {
     pub master_secret: MasterSecret,
     pub identity: IdentityKeyPair,
+}
+
+/// Compute the client-side authentication password hash sent to the server.
+///
+/// Uses **PBKDF2-HMAC-SHA256** with 600,000 iterations, returning a 32-byte
+/// value encoded as a lowercase hex string.
+///
+/// # Why PBKDF2 instead of Argon2?
+///
+/// The Web Crypto API (browser) does not natively support Argon2. PBKDF2 is
+/// the strongest algorithm available in Web Crypto. Once this crate is compiled
+/// to WASM and used in the browser directly, both clients will use this exact
+/// function — a single implementation shared across CLI and web.
+///
+/// The TypeScript implementation in `apps/web/src/lib/api/client.ts`
+/// (`hashPassword`) **must** stay byte-for-byte equivalent to this function.
+///
+/// # Parameters
+/// - `password`: the raw user password (UTF-8)
+/// - `salt`:     the per-user salt string stored in the database (UTF-8)
+pub fn auth_password_hash(password: &str, salt: &str) -> String {
+    let mut key = [0u8; 32];
+    pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), 600_000, &mut key);
+    hex::encode(key)
 }
 
 /// Derive the full key hierarchy from a password and salt.

@@ -25,14 +25,17 @@ export default function FilesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['files'] }),
   });
 
-  function handleDownload(file: FileMeta) {
-    // Direct chunk download — in a full E2EE impl this goes through the
-    // crypto Worker to decrypt. For now, download chunk 0 as a demo.
-    const url = `/api/v1/files/${file.file_id}/chunk/0`;
+  async function handleDownload(file: FileMeta) {
+    // Fetch via the authenticated axios client so the Bearer token is included.
+    // In a full E2EE impl this would go through the crypto Worker to decrypt.
+    const buffer = await files.downloadChunk(file.file_id, 0);
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = file.file_id;
     a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (

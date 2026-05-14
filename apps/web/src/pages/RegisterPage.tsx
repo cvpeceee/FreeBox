@@ -91,7 +91,13 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const argon2_salt = crypto.randomUUID();
+      // Generate a 16-byte random salt and encode it in Argon2's base64 alphabet
+      // (A-Za-z0-9+/) with no padding — compatible with SaltString::from_b64 in the CLI.
+      const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+      const argon2_salt = btoa(String.fromCharCode(...saltBytes))
+        .replace(/\+/g, '.')   // Argon2 uses '.' instead of '+'
+        .replace(/\//g, '/')   // '/' is valid in Argon2 b64
+        .replace(/=+$/, '');   // no padding
       const password_hash = await hashPassword(form.password, argon2_salt);
       const prekey_bundle = await generatePrekeyBundle();
       await auth.register({
