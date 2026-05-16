@@ -1,15 +1,17 @@
 /**
- * UploadModal — chunked file upload with per-file progress bars.
+ * UploadModal — chunked file upload with per-file AES-256-GCM encryption.
  *
- * Each file is split into 4 MiB chunks and uploaded in parallel streams.
- * In this initial implementation the file bytes are sent as-is (no encryption).
- * Encryption via the WASM crypto module will be added in a follow-up.
+ * Each file is split into 4 MiB chunks. A fresh random AES-256-GCM key is
+ * generated per file, and every chunk is encrypted before being sent to the
+ * server. The server never sees plaintext — only the JSON-serialised
+ * ChunkCiphertext produced by prepareUpload().
  */
 
 import { useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { X, Upload } from 'lucide-react';
 import { files } from '@/lib/api';
+import { prepareUpload } from '@/lib/crypto';
 import { Button } from '@/components/ui/Button';
 
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MiB
@@ -47,13 +49,15 @@ export default function UploadModal({ onClose }: UploadModalProps) {
     setItemField(index, { status: 'uploading', progress: 0 });
 
     try {
+      // Generate a fresh AES-256-GCM key, compute content hash, and get encrypt helper.
+      const ctx = await prepareUpload(file);
+
       const { upload_id } = await files.uploadInit({
         total_chunks: totalChunks,
         size_bytes: file.size,
-        // Placeholder values — replace with real crypto in E2EE phase.
-        encrypted_key_envelope: btoa('placeholder-key-envelope'),
-        content_hash: btoa(`sha256-${file.name}-${file.size}`),
-        encrypted_name: btoa(file.name),
+        encrypted_key_envelope: ctx.encrypted_key_envelope,
+        content_hash: ctx.content_hash,
+        encrypted_name: ctx.encrypted_name,
       });
 
       // Upload chunks with bounded parallelism.
@@ -65,9 +69,24 @@ export default function UploadModal({ onClose }: UploadModalProps) {
           const current = chunkIndex++;
           const start = current * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
-          const slice = new Uint8Array(await file.slice(start, end).arrayBuffer());
+          const plaintext = new Uint8Array(await file.slice(start, end).arrayBuffer()) as Uint8Array<ArrayBuffer>;
+          const ciphertext = await ctx.encryptChunk(current, plaintext);
 
-          await files.uploadChunk(upload_id, current, slice);
+          // Retry up to 3 times on transient server errors (e.g. 502 while
+          // the Rust server is still warming up).
+          let lastErr: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await files.uploadChunk(upload_id, current, ciphertext);
+              lastErr = undefined;
+              break;
+            } catch (err) {
+              lastErr = err;
+              await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+            }
+          }
+          if (lastErr) throw lastErr;
+
           completed++;
           setItemField(index, { progress: Math.round((completed / totalChunks) * 90) });
         }

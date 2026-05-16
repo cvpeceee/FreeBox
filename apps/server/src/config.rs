@@ -93,6 +93,7 @@ fn load_provider_config(provider: &str) -> Option<OAuthProviderConfig> {
 
 /// Top-level server configuration.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     // --- Network ---
     pub host: String,

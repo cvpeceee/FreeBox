@@ -64,8 +64,17 @@ impl IntoResponse for AppError {
         };
 
         // Include the human-readable message for all non-500 errors.
+        // In debug builds, include the full error chain in 500s so devs can
+        // diagnose issues directly from the browser Network tab — never in
+        // release builds (would leak internal details to clients).
         let message = match &self {
-            AppError::Internal(_) => "An unexpected error occurred".to_string(),
+            AppError::Internal(e) => {
+                if cfg!(debug_assertions) {
+                    format!("{e:#}")
+                } else {
+                    "An unexpected error occurred".to_string()
+                }
+            }
             other => other.to_string(),
         };
 

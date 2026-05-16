@@ -91,20 +91,87 @@ const http: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach Bearer token to every request.
-http.interceptors.request.use((config) => {
-  const token = getAccessToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Auth routes must never trigger the refresh loop.
+const AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh'];
+
+// ---------------------------------------------------------------------------
+// Shared refresh guard — ensures only one refresh call is in-flight at a time
+// regardless of how many requests trigger it concurrently.
+// ---------------------------------------------------------------------------
+
+let refreshing: Promise<void> | null = null;
+let refreshFailedAt: number | null = null;
+const REFRESH_CIRCUIT_BREAK_MS = 10_000; // don't retry refresh for 10 s after a failure
+
+function doRefresh(): Promise<void> {
+  // Circuit breaker: if refresh just failed (e.g. server down) don't hammer it.
+  if (refreshFailedAt !== null && Date.now() - refreshFailedAt < REFRESH_CIRCUIT_BREAK_MS) {
+    return Promise.reject(new Error('Server unreachable — retry in a moment.'));
+  }
+  if (!refreshing) {
+    refreshing = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) {
+        clearTokens();
+        throw new Error('Session expired. Please log in again.');
+      }
+      const res = await axios.post<AuthTokens>('/api/v1/auth/refresh', {
+        refresh_token: refreshToken,
+      });
+      saveTokens(res.data);
+      refreshFailedAt = null; // clear on success
+    })().finally(() => {
+      refreshing = null;
+    });
+    refreshing.catch(() => {
+      refreshFailedAt = Date.now();
+    });
+  }
+  return refreshing;
+}
+
+/** Decode the JWT `exp` claim without a library. Returns null if unparseable. */
+function jwtExp(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request interceptor — proactively refresh the token if it is expired or
+// within 60 s of expiry so API calls never hit a 401 on normal page reloads.
+// ---------------------------------------------------------------------------
+
+http.interceptors.request.use(async (config) => {
+  const isAuthRoute = AUTH_ROUTES.some((r) => (config.url ?? '').includes(r));
+  if (!isAuthRoute) {
+    const token = getAccessToken();
+    if (token) {
+      const exp = jwtExp(token);
+      if (exp !== null && exp * 1000 < Date.now() + 60_000) {
+        // Token is expired or expiring in <60 s — refresh before sending.
+        try {
+          await doRefresh();
+        } catch {
+          // Refresh failed; let the request go out and the response
+          // interceptor will handle the resulting 401.
+        }
+      }
+    }
+  }
+  const freshToken = getAccessToken();
+  if (freshToken) {
+    config.headers.Authorization = `Bearer ${freshToken}`;
   }
   return config;
 });
 
-// On 401, attempt a token refresh and retry once.
-let refreshing: Promise<void> | null = null;
-
-// Auth routes must never trigger the refresh loop.
-const AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh'];
+// ---------------------------------------------------------------------------
+// Response interceptor — defensive fallback for unexpected 401s.
+// ---------------------------------------------------------------------------
 
 http.interceptors.response.use(
   (res) => res,
@@ -115,22 +182,12 @@ http.interceptors.response.use(
 
     if (err.response?.status === 401 && !original._retry && !isAuthRoute) {
       original._retry = true;
-      if (!refreshing) {
-        refreshing = (async () => {
-          const refreshToken = getRefreshToken();
-          if (!refreshToken) {
-            clearTokens();
-            throw new Error('Session expired. Please log in again.');
-          }
-          const res = await axios.post<AuthTokens>('/api/v1/auth/refresh', {
-            refresh_token: refreshToken,
-          });
-          saveTokens(res.data);
-        })().finally(() => {
-          refreshing = null;
-        });
+      try {
+        await doRefresh();
+      } catch {
+        clearTokens();
+        throw new Error('Session expired. Please log in again.');
       }
-      await refreshing;
       return http(original);
     }
 

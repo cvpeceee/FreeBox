@@ -40,6 +40,7 @@ pub struct Signed {
 /// - `query_string` — pre-sorted query string, e.g. `""` or `"list-type=2"`
 /// - `host`         — hostname only, e.g. `"abc.r2.cloudflarestorage.com"`
 /// - `payload`      — request body bytes (empty slice for GET / bucket-level PUT)
+#[allow(clippy::too_many_arguments)]
 pub fn sign(
     method: &str,
     uri: &str,

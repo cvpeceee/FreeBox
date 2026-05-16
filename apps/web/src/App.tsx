@@ -15,6 +15,9 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: 30_000,
+      // Disable window-focus refetches in dev: every alt-tab back from DevTools
+      // would fire a new request, hitting the WSL2 connection pool unnecessarily.
+      refetchOnWindowFocus: false,
     },
   },
 });
@@ -31,6 +34,7 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<FilesPage />} />
+              <Route path="files" element={<FilesPage />} />
               <Route path="trash" element={<TrashPage />} />
               <Route path="storage" element={<StoragePage />} />
               <Route path="settings" element={<SettingsPage />} />

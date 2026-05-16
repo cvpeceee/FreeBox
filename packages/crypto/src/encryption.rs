@@ -27,11 +27,11 @@
 //! # Performance
 //!
 //! AES-GCM uses hardware AES-NI instructions on x86-64 and ARMv8 — expect
-//! > 3 GB/s throughput on modern hardware. Chunks are processed independently
+//! over 3 GB/s throughput on modern hardware. Chunks are processed independently,
 //! so upload can parallelize across 8 concurrent HTTP streams.
 
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
 use bytes::Bytes;
@@ -104,7 +104,7 @@ pub struct ChunkCiphertext {
 ///
 /// - `key`   — The file's AES-256 key.
 /// - `index` — Zero-based chunk index. Embedded in the nonce to prevent
-///             reordering attacks.
+///   reordering attacks.
 /// - `data`  — Raw plaintext bytes (must be ≤ [`CHUNK_SIZE`]).
 ///
 /// # Errors

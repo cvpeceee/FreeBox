@@ -26,7 +26,6 @@
 //! stored exclusively on user devices.
 
 use std::ops::Range;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use bytes::Bytes;

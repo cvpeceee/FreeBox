@@ -69,6 +69,7 @@ impl Claims {
 const USERNAME_MIN: usize = 3;
 const USERNAME_MAX: usize = 32;
 /// Only alphanumeric + underscore + hyphen. Prevents XSS and SQL edge cases.
+#[allow(dead_code)]
 const USERNAME_PATTERN: &str = r"^[a-zA-Z0-9_-]+$";
 /// Maximum length for hashes and salts (prevents storage exhaustion).
 const MAX_HASH_LEN: usize = 256;

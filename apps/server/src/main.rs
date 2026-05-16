@@ -45,8 +45,25 @@ async fn main() -> anyhow::Result<()> {
 
     // --- Database ---
     tracing::info!(url = %cfg.database_url, "Connecting to PostgreSQL");
+
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(cfg.db_pool_size)
+        .min_connections(0)
+        // Re-check connections before handing them out.  Connections killed
+        // by corporate endpoint-security software (error 10053) report an
+        // immediate error on the ping, so this is fast and prevents handing
+        // a dead socket to a handler.
+        .test_before_acquire(true)
+        // Close connections almost immediately after they're returned to the
+        // pool.  Corporate endpoint-protection software on this machine
+        // (hpiit policy) aborts idle TCP connections to port 5432 within
+        // seconds (WSAECONNABORTED / os error 10053).  By setting a very
+        // short idle timeout we close connections voluntarily before the
+        // security software can kill them.  Each new request creates a fresh
+        // connection (~10-40 ms for local Docker PostgreSQL).
+        .idle_timeout(std::time::Duration::from_millis(500))
+        // Fail fast if no connection is available.
+        .acquire_timeout(std::time::Duration::from_secs(10))
         .connect(&cfg.database_url)
         .await?;
 

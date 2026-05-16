@@ -27,13 +27,16 @@ services:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
     container_name: freebox-cache
     restart: unless-stopped
-    command: dragonfly --maxmemory=512mb --save_schedule=""
+    # proactor_threads=2 limits CPU threads to 2, keeping memory well under 1 GB.
+    # Without this Dragonfly allocates 256 MB per detected CPU thread — on a
+    # machine with 24 threads that requires 6 GB and the container exits immediately.
+    command: dragonfly --maxmemory=512mb --save_schedule="" --proactor_threads=2
     ports:
       - "6379:6379"
     ulimits:
       memlock: -1
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -42,7 +45,7 @@ services:
   # MinIO — S3-compatible local object storage
   # ---------------------------------------------------------------------------
   minio:
-    image: quay.io/minio/minio:latest
+    image: minio/minio:latest
     container_name: freebox-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

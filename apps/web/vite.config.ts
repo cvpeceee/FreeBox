@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',   // bind all interfaces so 127.0.0.1 works in Wait-ForPort
     port: 5173,
     // Proxy all /api calls to the Rust backend during development.
     // The backend must be running on port 8080 (cargo run -p freebox-server).

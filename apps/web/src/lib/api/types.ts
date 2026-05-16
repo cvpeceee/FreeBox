@@ -87,7 +87,6 @@ export interface AuditEventsResponse {
 }
 
 export interface Datasource {
-  id: string;
   name: string;
   provider: string;
   region: string | null;
